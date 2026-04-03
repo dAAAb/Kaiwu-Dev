@@ -1,0 +1,11 @@
+name = "kaiwu-dev"
+compatibility_date = "2024-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kaiwu-db"
+database_id = "TBD"
+
+[vars]
+SEARXNG_URL = "https://searxng-tw.zeabur.app"
+PRIVY_APP_ID = "cmnj7653v00400cky42ae3biw"
