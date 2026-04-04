@@ -21,13 +21,16 @@ body {
   color: var(--text);
   min-height: 100vh;
   overflow-x: hidden;
-  font-size: 16px;
-  line-height: 1.6;
+  font-size: 17px;
+  line-height: 1.65;
 }
 
-/* Dashboard: larger base font */
+/* Dashboard: larger base font on desktop */
 @media (min-width: 1024px) {
   .dashboard-content {
-    font-size: 17px;
+    font-size: 18px;
+    line-height: 1.7;
   }
+  .dashboard-content h1 { font-size: 28px; }
+  .dashboard-content h2 { font-size: 22px; }
 }

@@ -52,7 +52,8 @@ export default function Overview({ userInfo, apiKeys, onCreateKey, onDeleteKey }
     }
   }
 
-  const mcpUrl = defaultKey ? `https://kaiwu.dev/mcp?apiKey=${defaultKey.full_key || defaultKey.key_prefix}` : ''
+  const defaultFullKey = defaultKey?.full_key || defaultKey?.key_prefix || ''
+  const mcpUrl = defaultKey ? `https://kaiwu.dev/mcp?apiKey=${defaultFullKey}` : ''
 
   return (
     <div className="max-w-4xl">

@@ -3,13 +3,16 @@ import type { ApiKey } from '../pages/Dashboard'
 
 export default function McpSection({ apiKeys }: { apiKeys: ApiKey[] }) {
   const activeKeys = apiKeys.filter(k => !k.revoked)
-  const [selectedKey, setSelectedKey] = useState(activeKeys[0]?.key_prefix || '')
+  const [selectedKeyId, setSelectedKeyId] = useState(activeKeys[0]?.id || '')
   const [mcpUrl, setMcpUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
+  const selectedKey = activeKeys.find(k => k.id === selectedKeyId)
+
   const generateMcpUrl = () => {
     if (!selectedKey) return
-    const url = `https://kaiwu.dev/mcp?apiKey=${selectedKey}`
+    const fullKey = selectedKey.full_key || selectedKey.key_prefix
+    const url = `https://kaiwu.dev/mcp?apiKey=${fullKey}`
     setMcpUrl(url)
     setCopied(false)
   }
@@ -54,19 +57,19 @@ export default function McpSection({ apiKeys }: { apiKeys: ApiKey[] }) {
           <div className="flex-1">
             <label className="text-sm text-muted block mb-1">選擇 API 金鑰</label>
             <select
-              value={selectedKey}
-              onChange={(e) => { setSelectedKey(e.target.value); setMcpUrl(null) }}
+              value={selectedKeyId}
+              onChange={(e) => { setSelectedKeyId(e.target.value); setMcpUrl(null) }}
               className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-white outline-none focus:border-accent"
             >
               {activeKeys.map((k) => (
-                <option key={k.id} value={k.key_prefix}>{k.name} ({k.key_prefix}...)</option>
+                <option key={k.id} value={k.id}>{k.name} ({k.key_prefix}...)</option>
               ))}
               {activeKeys.length === 0 && <option value="">尚無金鑰</option>}
             </select>
           </div>
           <button
             onClick={generateMcpUrl}
-            disabled={!selectedKey}
+            disabled={!selectedKeyId}
             className="px-6 py-2.5 bg-accent text-bg rounded-lg font-semibold hover:bg-amber-400 disabled:opacity-50 transition-colors whitespace-nowrap"
           >
             產生 MCP 連結
@@ -102,7 +105,7 @@ export default function McpSection({ apiKeys }: { apiKeys: ApiKey[] }) {
       "command": "npx",
       "args": ["kaiwu-mcp"],
       "env": {
-        "KAIWU_API_KEY": "${selectedKey || 'kw_你的金鑰'}"
+        "KAIWU_API_KEY": "${selectedKey?.full_key || selectedKey?.key_prefix || 'kw_你的金鑰'}"
       }
     }
   }
