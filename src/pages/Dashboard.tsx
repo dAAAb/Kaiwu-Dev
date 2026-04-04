@@ -16,7 +16,7 @@ export interface ApiKey {
   usage_count: number
   created_at: string
   revoked: number
-  full_key?: string // only present on creation
+  full_key?: string // present on creation + auth callback
 }
 
 export interface UserInfo {
@@ -41,7 +41,7 @@ export default function Dashboard() {
       const token = await getAccessToken()
       if (!token) return
 
-      // Auth callback - ensure user exists
+      // Auth callback - ensure user exists + get keys
       const authRes = await fetch('/api/auth/callback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -50,15 +50,7 @@ export default function Dashboard() {
       if (authRes.ok) {
         const data = await authRes.json()
         setUserInfo(data.user)
-      }
-
-      // Fetch API keys
-      const keysRes = await fetch('/api/keys', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (keysRes.ok) {
-        const data = await keysRes.json()
-        setApiKeys(data.keys || [])
+        if (data.keys) setApiKeys(data.keys)
       }
     } catch (e) {
       console.error('Failed to fetch user data:', e)
@@ -147,7 +139,7 @@ export default function Dashboard() {
         onNavigate={(s) => navigate(s === 'overview' ? '/dashboard' : `/dashboard/${s}`)}
         userEmail={user?.email?.address || userInfo?.email || ''}
       />
-      <main className="flex-1 p-8 overflow-y-auto ml-64">
+      <main className="flex-1 p-8 overflow-y-auto ml-64 dashboard-content">
         {renderContent()}
       </main>
     </div>

@@ -14,10 +14,15 @@ export default function Overview({ userInfo, apiKeys, onCreateKey, onDeleteKey }
   const [createdKey, setCreatedKey] = useState<string | null>(null)
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [mcpCopied, setMcpCopied] = useState(false)
 
   const used = userInfo?.credits_used ?? 0
   const total = userInfo?.monthly_credits ?? 1000
   const pct = Math.min((used / total) * 100, 100)
+
+  const activeKeys = apiKeys.filter(k => !k.revoked)
+  const defaultKey = activeKeys[0]
 
   const handleCreate = async () => {
     setCreating(true)
@@ -39,9 +44,15 @@ export default function Overview({ userInfo, apiKeys, onCreateKey, onDeleteKey }
     })
   }
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, id?: string) => {
     navigator.clipboard.writeText(text)
+    if (id) {
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(null), 2000)
+    }
   }
+
+  const mcpUrl = defaultKey ? `https://kaiwu.dev/mcp?apiKey=${defaultKey.full_key || defaultKey.key_prefix}` : ''
 
   return (
     <div className="max-w-4xl">
@@ -88,7 +99,7 @@ export default function Overview({ userInfo, apiKeys, onCreateKey, onDeleteKey }
       )}
 
       {/* API Keys */}
-      <div className="bg-surface border border-border rounded-2xl p-6">
+      <div className="bg-surface border border-border rounded-2xl p-6 mb-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">API 金鑰</h2>
           <button
@@ -136,7 +147,7 @@ export default function Overview({ userInfo, apiKeys, onCreateKey, onDeleteKey }
               </tr>
             </thead>
             <tbody>
-              {apiKeys.filter(k => !k.revoked).map((key) => (
+              {activeKeys.map((key) => (
                 <tr key={key.id} className="border-t border-border">
                   <td className="py-3 px-2 font-medium">{key.name}</td>
                   <td className="py-3 px-2">
@@ -147,7 +158,7 @@ export default function Overview({ userInfo, apiKeys, onCreateKey, onDeleteKey }
                   <td className="py-3 px-2 text-muted">{key.usage_count}</td>
                   <td className="py-3 px-2 font-mono text-xs">
                     {visibleKeys.has(key.id)
-                      ? key.key_prefix + '••••••••'
+                      ? (key.full_key || key.key_prefix + '••••••••••••')
                       : key.key_prefix + '••••••••'}
                   </td>
                   <td className="py-3 px-2 text-right">
@@ -155,16 +166,16 @@ export default function Overview({ userInfo, apiKeys, onCreateKey, onDeleteKey }
                       <button
                         onClick={() => toggleKeyVisibility(key.id)}
                         className="text-muted hover:text-white transition-colors text-xs"
-                        title="顯示/隱藏"
+                        title={visibleKeys.has(key.id) ? '隱藏' : '顯示'}
                       >
-                        👁
+                        {visibleKeys.has(key.id) ? '🙈' : '👁'}
                       </button>
                       <button
-                        onClick={() => copyToClipboard(key.key_prefix + '••••••••')}
+                        onClick={() => copyToClipboard(key.full_key || key.key_prefix, key.id)}
                         className="text-muted hover:text-white transition-colors text-xs"
                         title="複製"
                       >
-                        📋
+                        {copiedId === key.id ? '✅' : '📋'}
                       </button>
                       <button
                         onClick={() => {
@@ -179,7 +190,7 @@ export default function Overview({ userInfo, apiKeys, onCreateKey, onDeleteKey }
                   </td>
                 </tr>
               ))}
-              {apiKeys.filter(k => !k.revoked).length === 0 && (
+              {activeKeys.length === 0 && (
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-muted">
                     尚無 API 金鑰。點擊「+ 建立金鑰」來建立你的第一把金鑰。
@@ -190,6 +201,31 @@ export default function Overview({ userInfo, apiKeys, onCreateKey, onDeleteKey }
           </table>
         </div>
       </div>
+
+      {/* MCP Quick Access */}
+      {defaultKey && (
+        <div className="bg-surface border border-border rounded-2xl p-6">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xl">🔌</span>
+            <h2 className="text-lg font-semibold">遠端 MCP</h2>
+          </div>
+          <p className="text-muted text-sm mb-4">
+            將此連結貼到 Claude Desktop、Cursor 或 OpenClaw 的 MCP 設定中，即可讓 AI 使用開物搜尋。
+          </p>
+          <div className="bg-bg rounded-xl p-4 border border-accent/30">
+            <div className="text-xs text-muted mb-2">MCP 連結（使用 {defaultKey.name} 金鑰）</div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-sm font-mono text-accent break-all">{mcpUrl}</code>
+              <button
+                onClick={() => { copyToClipboard(mcpUrl); setMcpCopied(true); setTimeout(() => setMcpCopied(false), 2000) }}
+                className="px-4 py-2 bg-accent text-bg rounded-lg text-sm font-semibold hover:bg-amber-400 transition-colors whitespace-nowrap"
+              >
+                {mcpCopied ? '✅ 已複製' : '複製連結'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
