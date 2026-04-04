@@ -14,7 +14,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           theme: 'dark',
           accentColor: '#f59e0b',
         },
-        loginMethods: ['email', 'wallet', 'google'],
+        loginMethods: ['email', 'wallet'],
       }}
     >
       <BrowserRouter>
