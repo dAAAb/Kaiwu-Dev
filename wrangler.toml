@@ -4,7 +4,7 @@ compatibility_date = "2024-12-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "kaiwu-db"
-database_id = "TBD"
+database_id = "50e8d7fd-fa73-48d3-b59c-f4002aa8fbef"
 
 [vars]
 SEARXNG_URL = "https://searxng-tw.zeabur.app"
