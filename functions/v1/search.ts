@@ -103,71 +103,69 @@ async function fetchPageContent(url: string, timeoutMs = 5000): Promise<string |
 }
 
 // ---------------------------------------------------------------------------
-// LLM call — tries Ollama first (self-hosted), falls back to Gemini (free tier)
+// Gemini call (fast, ~2s, for latency-sensitive tasks)
+// ---------------------------------------------------------------------------
+async function geminiGenerate(env: Env, prompt: string, systemPrompt?: string): Promise<string> {
+  const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
+  const contents: any[] = []
+  if (systemPrompt) {
+    contents.push({ role: 'user', parts: [{ text: systemPrompt }] })
+    contents.push({ role: 'model', parts: [{ text: '好的，我會按照指示處理。' }] })
+  }
+  contents.push({ role: 'user', parts: [{ text: prompt }] })
+
+  const res = await fetch(geminiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
+    body: JSON.stringify({ contents, generationConfig: { temperature: 0.3, maxOutputTokens: 2048 } }),
+  })
+  if (!res.ok) throw new Error('Gemini unavailable')
+  const data = await res.json() as any
+  return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+}
+
+// ---------------------------------------------------------------------------
+// Ollama call (self-hosted, ~12 tok/s, for cost-sensitive tasks)
+// ---------------------------------------------------------------------------
+async function ollamaGenerate(env: Env, prompt: string, systemPrompt?: string): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 20000)
+  const messages: { role: string; content: string }[] = []
+  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+  messages.push({ role: 'user', content: prompt })
+
+  const res = await fetch(`${env.OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'gemma4:e4b', messages, stream: false, options: { temperature: 0.3, num_predict: 2048 } }),
+    signal: controller.signal,
+  })
+  clearTimeout(timer)
+  if (!res.ok) throw new Error('Ollama unavailable')
+  const data = await res.json() as { message: { content: string } }
+  return data.message?.content?.trim() || ''
+}
+
+// ---------------------------------------------------------------------------
+// LLM router — picks the right backend based on task
 // ---------------------------------------------------------------------------
 async function llmGenerate(
   env: Env,
   prompt: string,
   systemPrompt?: string,
+  preferFast = false,
 ): Promise<string> {
-  // Try Ollama first (self-hosted, no API cost, ~12 tok/s on 8C/32GB)
-  if (env.OLLAMA_URL) {
-    try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 20000)
-      const messages: { role: string; content: string }[] = []
-      if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
-      messages.push({ role: 'user', content: prompt })
-
-      const ollamaRes = await fetch(`${env.OLLAMA_URL}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'gemma4:e4b',
-          messages,
-          stream: false,
-          options: { temperature: 0.3, num_predict: 2048 },
-        }),
-        signal: controller.signal,
-      })
-      clearTimeout(timer)
-      if (ollamaRes.ok) {
-        const data = await ollamaRes.json() as { message: { content: string } }
-        if (data.message?.content?.trim()) return data.message.content.trim()
-      }
-    } catch {
-      // Timeout or error — fall through to Gemini
-    }
+  // Fast path: use Gemini directly (for advanced chunking with large input)
+  if (preferFast && env.GEMINI_API_KEY) {
+    try { return await geminiGenerate(env, prompt, systemPrompt) } catch {}
   }
 
-  // Gemini fallback (fast but rate-limited: 15 RPM free tier)
+  // Normal path: Ollama first → Gemini fallback
+  if (env.OLLAMA_URL) {
+    try { return await ollamaGenerate(env, prompt, systemPrompt) } catch {}
+  }
   if (env.GEMINI_API_KEY) {
-    const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
-
-    const contents: any[] = []
-    if (systemPrompt) {
-      contents.push({ role: 'user', parts: [{ text: systemPrompt }] })
-      contents.push({ role: 'model', parts: [{ text: '好的，我會按照指示處理。' }] })
-    }
-    contents.push({ role: 'user', parts: [{ text: prompt }] })
-
-    const geminiRes = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': env.GEMINI_API_KEY,
-      },
-      body: JSON.stringify({
-        contents,
-        generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
-      }),
-    })
-
-    if (geminiRes.ok) {
-      const geminiData = await geminiRes.json() as any
-      const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
-      if (text) return text
-    }
+    try { return await geminiGenerate(env, prompt, systemPrompt) } catch {}
   }
 
   throw new Error('LLM 服務暫時無法使用')
@@ -204,7 +202,8 @@ async function semanticChunk(
 ${pages}`
 
   try {
-    const response = await llmGenerate(env, prompt, systemPrompt)
+    // Use Gemini for chunking (fast, handles large input well)
+    const response = await llmGenerate(env, prompt, systemPrompt, true)
     const sourceBlocks = response.split(/\[來源\s*\d+\]/).filter(Boolean)
     results.forEach((r, i) => {
       if (sourceBlocks[i]) {
