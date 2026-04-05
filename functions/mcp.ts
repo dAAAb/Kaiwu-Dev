@@ -143,8 +143,22 @@ function jsonrpcError(id: number | string | null, code: number, message: string)
   return { jsonrpc: '2.0', id, error: { code, message } }
 }
 
+// Format as SSE event (matching Tavily's format)
+function sseResponse(data: any, extraHeaders?: Record<string, string>): Response {
+  const body = `event: message\ndata: ${JSON.stringify(data)}\n\n`
+  return new Response(body, {
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+      ...extraHeaders,
+    },
+  })
+}
+
 // ---------------------------------------------------------------------------
-// POST handler — JSON-RPC over Streamable HTTP
+// POST handler — JSON-RPC over Streamable HTTP (SSE transport)
 // ---------------------------------------------------------------------------
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { request, env } = context
@@ -152,9 +166,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   // Validate API key
   const keyRow = await validateApiKey(env, request)
   if (!keyRow) {
-    return Response.json(
+    return sseResponse(
       jsonrpcError(null, -32000, '需要 API 金鑰。請在 URL 加上 ?apiKey=kw_xxx 或使用 Authorization header。'),
-      { status: 401, headers: corsHeaders },
     )
   }
 
@@ -162,23 +175,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     body = await request.json()
   } catch {
-    return Response.json(
-      jsonrpcError(null, -32700, 'Parse error'),
-      { status: 400, headers: corsHeaders },
-    )
+    return sseResponse(jsonrpcError(null, -32700, 'Parse error'))
   }
 
   // Handle batch requests
   if (Array.isArray(body)) {
-    const responses = []
+    const events: string[] = []
     for (const msg of body) {
       const res = await handleMessage(env, request, msg)
-      if (res) responses.push(res)
+      if (res) events.push(`event: message\ndata: ${JSON.stringify(res)}\n\n`)
     }
-    if (responses.length === 0) {
+    if (events.length === 0) {
       return new Response('', { status: 202, headers: corsHeaders })
     }
-    return Response.json(responses, { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    return new Response(events.join(''), {
+      headers: { ...corsHeaders, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform' },
+    })
   }
 
   // Handle single message
@@ -190,12 +202,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   }
 
   // Initialize → include session header
-  const headers: Record<string, string> = { ...corsHeaders, 'Content-Type': 'application/json' }
+  const extraHeaders: Record<string, string> = {}
   if (body.method === 'initialize') {
-    headers['Mcp-Session-Id'] = crypto.randomUUID()
+    extraHeaders['Mcp-Session-Id'] = crypto.randomUUID()
   }
 
-  return new Response(JSON.stringify(result), { headers })
+  return sseResponse(result, extraHeaders)
 }
 
 async function handleMessage(env: Env, request: Request, msg: any): Promise<any | null> {
