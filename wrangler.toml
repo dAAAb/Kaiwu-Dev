@@ -9,3 +9,5 @@ database_id = "50e8d7fd-fa73-48d3-b59c-f4002aa8fbef"
 [vars]
 SEARXNG_URL = "https://searxng-tw.zeabur.app"
 PRIVY_APP_ID = "cmnj7653v00400cky42ae3biw"
+# GEMINI_API_KEY — set via: npx wrangler pages secret put GEMINI_API_KEY
+# OLLAMA_URL — set via: npx wrangler pages secret put OLLAMA_URL
