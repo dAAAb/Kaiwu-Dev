@@ -95,79 +95,83 @@ async function fetchPageContent(url: string, timeoutMs = 5000): Promise<string |
 
     const html = await res.text()
     const text = htmlToText(html)
-    // Truncate to ~8000 chars to stay within LLM context limits
-    return text.slice(0, 8000)
+    // Truncate to ~4000 chars to keep LLM response fast
+    return text.slice(0, 4000)
   } catch {
     return null
   }
 }
 
 // ---------------------------------------------------------------------------
-// LLM call — tries Ollama first, falls back to Gemini
+// LLM call — tries Gemini first (fast), falls back to Ollama (self-hosted)
 // ---------------------------------------------------------------------------
 async function llmGenerate(
   env: Env,
   prompt: string,
   systemPrompt?: string,
 ): Promise<string> {
-  // Try Ollama first (self-hosted)
-  if (env.OLLAMA_URL) {
+  // Try Gemini first (fast, ~2-3s)
+  if (env.GEMINI_API_KEY) {
     try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 25000)
-      const messages: { role: string; content: string }[] = []
-      if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
-      messages.push({ role: 'user', content: prompt })
+      const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 
-      const ollamaRes = await fetch(`${env.OLLAMA_URL}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'gemma4:e4b',
-          messages,
-          stream: false,
-          options: { temperature: 0.3, num_predict: 2048 },
-        }),
-        signal: controller.signal,
-      })
-      clearTimeout(timer)
-      if (ollamaRes.ok) {
-        const data = await ollamaRes.json() as { message: { content: string } }
-        if (data.message?.content?.trim()) return data.message.content.trim()
+      const contents: any[] = []
+      if (systemPrompt) {
+        contents.push({ role: 'user', parts: [{ text: systemPrompt }] })
+        contents.push({ role: 'model', parts: [{ text: '好的，我會按照指示處理。' }] })
       }
+      contents.push({ role: 'user', parts: [{ text: prompt }] })
+
+      const geminiRes = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': env.GEMINI_API_KEY,
+        },
+        body: JSON.stringify({
+          contents,
+          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+        }),
+      })
+
+      if (geminiRes.ok) {
+        const geminiData = await geminiRes.json() as any
+        const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+        if (text) return text
+      }
+      // 429 rate limit or other error — fall through to Ollama
     } catch {
-      // Fall through to Gemini
+      // Fall through to Ollama
     }
   }
 
-  // Gemini Flash (fallback)
-  const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
+  // Ollama fallback (self-hosted, slower but no rate limit)
+  if (env.OLLAMA_URL) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 25000)
+    const messages: { role: string; content: string }[] = []
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+    messages.push({ role: 'user', content: prompt })
 
-  const contents: any[] = []
-  if (systemPrompt) {
-    contents.push({ role: 'user', parts: [{ text: systemPrompt }] })
-    contents.push({ role: 'model', parts: [{ text: '好的，我會按照指示處理。' }] })
+    const ollamaRes = await fetch(`${env.OLLAMA_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gemma4:e4b',
+        messages,
+        stream: false,
+        options: { temperature: 0.3, num_predict: 2048 },
+      }),
+      signal: controller.signal,
+    })
+    clearTimeout(timer)
+    if (ollamaRes.ok) {
+      const data = await ollamaRes.json() as { message: { content: string } }
+      if (data.message?.content?.trim()) return data.message.content.trim()
+    }
   }
-  contents.push({ role: 'user', parts: [{ text: prompt }] })
 
-  const geminiRes = await fetch(geminiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': env.GEMINI_API_KEY,
-    },
-    body: JSON.stringify({
-      contents,
-      generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
-    }),
-  })
-
-  if (!geminiRes.ok) {
-    throw new Error(`LLM 服務暫時無法使用`)
-  }
-
-  const geminiData = await geminiRes.json() as any
-  return geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+  throw new Error('LLM 服務暫時無法使用')
 }
 
 // ---------------------------------------------------------------------------
