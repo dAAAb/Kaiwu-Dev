@@ -102,7 +102,7 @@ async function llmGenerate(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gemma3:4b-it-q4_K_M',
+          model: 'gemma4:e4b',
           prompt: systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt,
           stream: false,
           options: { temperature: 0.3, num_predict: 2048 },
