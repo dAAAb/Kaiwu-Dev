@@ -160,12 +160,13 @@ async function llmGenerate(
     try { return await geminiGenerate(env, prompt, systemPrompt) } catch {}
   }
 
-  // Normal path: Ollama first → Gemini fallback
-  if (env.OLLAMA_URL) {
-    try { return await ollamaGenerate(env, prompt, systemPrompt) } catch {}
-  }
+  // Normal path: Gemini first (Ollama too unreliable on CPU for production)
+  // TODO: re-enable Ollama when running on GPU or with faster model
   if (env.GEMINI_API_KEY) {
     try { return await geminiGenerate(env, prompt, systemPrompt) } catch {}
+  }
+  if (env.OLLAMA_URL) {
+    try { return await ollamaGenerate(env, prompt, systemPrompt) } catch {}
   }
 
   throw new Error('LLM 服務暫時無法使用')
