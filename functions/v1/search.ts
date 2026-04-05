@@ -103,71 +103,70 @@ async function fetchPageContent(url: string, timeoutMs = 5000): Promise<string |
 }
 
 // ---------------------------------------------------------------------------
-// LLM call — tries Gemini first (fast), falls back to Ollama (self-hosted)
+// LLM call — tries Ollama first (self-hosted), falls back to Gemini (free tier)
 // ---------------------------------------------------------------------------
 async function llmGenerate(
   env: Env,
   prompt: string,
   systemPrompt?: string,
 ): Promise<string> {
-  // Try Gemini first (fast, ~2-3s)
-  if (env.GEMINI_API_KEY) {
+  // Try Ollama first (self-hosted, no API cost, ~12 tok/s on 8C/32GB)
+  if (env.OLLAMA_URL) {
     try {
-      const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 25000)
+      const messages: { role: string; content: string }[] = []
+      if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+      messages.push({ role: 'user', content: prompt })
 
-      const contents: any[] = []
-      if (systemPrompt) {
-        contents.push({ role: 'user', parts: [{ text: systemPrompt }] })
-        contents.push({ role: 'model', parts: [{ text: '好的，我會按照指示處理。' }] })
-      }
-      contents.push({ role: 'user', parts: [{ text: prompt }] })
-
-      const geminiRes = await fetch(geminiUrl, {
+      const ollamaRes = await fetch(`${env.OLLAMA_URL}/api/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': env.GEMINI_API_KEY,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents,
-          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+          model: 'gemma4:e4b',
+          messages,
+          stream: false,
+          options: { temperature: 0.3, num_predict: 2048 },
         }),
+        signal: controller.signal,
       })
-
-      if (geminiRes.ok) {
-        const geminiData = await geminiRes.json() as any
-        const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
-        if (text) return text
+      clearTimeout(timer)
+      if (ollamaRes.ok) {
+        const data = await ollamaRes.json() as { message: { content: string } }
+        if (data.message?.content?.trim()) return data.message.content.trim()
       }
-      // 429 rate limit or other error — fall through to Ollama
     } catch {
-      // Fall through to Ollama
+      // Timeout or error — fall through to Gemini
     }
   }
 
-  // Ollama fallback (self-hosted, slower but no rate limit)
-  if (env.OLLAMA_URL) {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 25000)
-    const messages: { role: string; content: string }[] = []
-    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
-    messages.push({ role: 'user', content: prompt })
+  // Gemini fallback (fast but rate-limited: 15 RPM free tier)
+  if (env.GEMINI_API_KEY) {
+    const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 
-    const ollamaRes = await fetch(`${env.OLLAMA_URL}/api/chat`, {
+    const contents: any[] = []
+    if (systemPrompt) {
+      contents.push({ role: 'user', parts: [{ text: systemPrompt }] })
+      contents.push({ role: 'model', parts: [{ text: '好的，我會按照指示處理。' }] })
+    }
+    contents.push({ role: 'user', parts: [{ text: prompt }] })
+
+    const geminiRes = await fetch(geminiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': env.GEMINI_API_KEY,
+      },
       body: JSON.stringify({
-        model: 'gemma4:e4b',
-        messages,
-        stream: false,
-        options: { temperature: 0.3, num_predict: 2048 },
+        contents,
+        generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
       }),
-      signal: controller.signal,
     })
-    clearTimeout(timer)
-    if (ollamaRes.ok) {
-      const data = await ollamaRes.json() as { message: { content: string } }
-      if (data.message?.content?.trim()) return data.message.content.trim()
+
+    if (geminiRes.ok) {
+      const geminiData = await geminiRes.json() as any
+      const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+      if (text) return text
     }
   }
 
@@ -183,44 +182,27 @@ async function semanticChunk(
   results: { url: string; rawContent: string }[],
 ): Promise<Map<string, string>> {
   const chunks = new Map<string, string>()
-
-  // Batch all pages into one prompt for efficiency
-  const pages = results
-    .map((r, i) => `=== 來源 ${i + 1} (${r.url}) ===\n${r.rawContent}`)
-    .join('\n\n')
-
   const systemPrompt = '你是搜尋結果摘要助手。只輸出摘要，不要加額外說明。'
-  const prompt = `搜尋查詢：「${query}」
 
-從以下網頁內容中，針對每個來源提取與查詢最相關的 2-3 段摘要。
-每段摘要不超過 300 字，保留關鍵數據和事實。
-用 [...] 分隔每段摘要。
+  // Process each page individually in parallel to avoid LLM timeout on large batches
+  const promises = results.map(async (r) => {
+    const prompt = `搜尋查詢：「${query}」
 
-格式：
-[來源 1]
-摘要內容 [...] 摘要內容
+從以下網頁內容中，提取與查詢最相關的 2-3 段摘要。
+每段摘要不超過 200 字，保留關鍵數據和事實。
+用 [...] 分隔每段摘要。只輸出摘要內容。
 
-[來源 2]
-摘要內容 [...] 摘要內容
+${r.rawContent}`
 
-${pages}`
-
-  try {
-    const response = await llmGenerate(env, prompt, systemPrompt)
-    // Parse response — split by [來源 N]
-    const sourceBlocks = response.split(/\[來源\s*\d+\]/).filter(Boolean)
-    results.forEach((r, i) => {
-      if (sourceBlocks[i]) {
-        chunks.set(r.url, sourceBlocks[i].trim())
-      }
-    })
-  } catch {
-    // If LLM fails, fall back to truncated raw content
-    results.forEach(r => {
+    try {
+      const response = await llmGenerate(env, prompt, systemPrompt)
+      chunks.set(r.url, response)
+    } catch {
       chunks.set(r.url, r.rawContent.slice(0, 500))
-    })
-  }
+    }
+  })
 
+  await Promise.all(promises)
   return chunks
 }
 
