@@ -62,6 +62,21 @@ function htmlToText(html: string): string {
 // ---------------------------------------------------------------------------
 async function fetchPageContent(url: string, timeoutMs = 5000): Promise<string | null> {
   try {
+    // SSRF protection: block internal/private IPs and non-HTTP protocols
+    const parsed = new URL(url)
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null
+    const hostname = parsed.hostname.toLowerCase()
+    if (
+      hostname === 'localhost' ||
+      hostname.startsWith('127.') ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('172.') ||
+      hostname === '169.254.169.254' ||
+      hostname.endsWith('.internal') ||
+      hostname.endsWith('.local')
+    ) return null
+
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     const res = await fetch(url, {
@@ -95,30 +110,38 @@ async function llmGenerate(
   prompt: string,
   systemPrompt?: string,
 ): Promise<string> {
-  // Try Ollama first (self-hosted, Phase 2)
+  // Try Ollama first (self-hosted)
   if (env.OLLAMA_URL) {
     try {
-      const ollamaRes = await fetch(`${env.OLLAMA_URL}/api/generate`, {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 25000)
+      const messages: { role: string; content: string }[] = []
+      if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+      messages.push({ role: 'user', content: prompt })
+
+      const ollamaRes = await fetch(`${env.OLLAMA_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'gemma4:e4b',
-          prompt: systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt,
+          messages,
           stream: false,
           options: { temperature: 0.3, num_predict: 2048 },
         }),
+        signal: controller.signal,
       })
+      clearTimeout(timer)
       if (ollamaRes.ok) {
-        const data = await ollamaRes.json() as { response: string }
-        if (data.response?.trim()) return data.response.trim()
+        const data = await ollamaRes.json() as { message: { content: string } }
+        if (data.message?.content?.trim()) return data.message.content.trim()
       }
     } catch {
       // Fall through to Gemini
     }
   }
 
-  // Gemini Flash (fallback / Phase 1 primary)
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${env.GEMINI_API_KEY}`
+  // Gemini Flash (fallback)
+  const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 
   const contents: any[] = []
   if (systemPrompt) {
@@ -129,7 +152,10 @@ async function llmGenerate(
 
   const geminiRes = await fetch(geminiUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': env.GEMINI_API_KEY,
+    },
     body: JSON.stringify({
       contents,
       generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
@@ -137,8 +163,7 @@ async function llmGenerate(
   })
 
   if (!geminiRes.ok) {
-    const err = await geminiRes.text()
-    throw new Error(`Gemini API error: ${geminiRes.status} ${err}`)
+    throw new Error(`LLM 服務暫時無法使用`)
   }
 
   const geminiData = await geminiRes.json() as any
@@ -359,7 +384,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     return Response.json(response, { headers: corsHeaders })
   } catch (e: any) {
-    return Response.json({ error: '搜尋失敗', detail: e.message }, { status: 500, headers: corsHeaders })
+    return Response.json({ error: '搜尋失敗' }, { status: 500, headers: corsHeaders })
   }
 }
 
