@@ -114,7 +114,7 @@ async function llmGenerate(
   if (env.OLLAMA_URL) {
     try {
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 25000)
+      const timer = setTimeout(() => controller.abort(), 20000)
       const messages: { role: string; content: string }[] = []
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
       messages.push({ role: 'user', content: prompt })
@@ -182,27 +182,41 @@ async function semanticChunk(
   results: { url: string; rawContent: string }[],
 ): Promise<Map<string, string>> {
   const chunks = new Map<string, string>()
+
+  // Batch all pages into one LLM call (Ollama serializes requests, so
+  // parallel calls just queue up and timeout — one big prompt is faster)
+  const pages = results
+    .map((r, i) => `=== 來源 ${i + 1} (${r.url}) ===\n${r.rawContent}`)
+    .join('\n\n')
+
   const systemPrompt = '你是搜尋結果摘要助手。只輸出摘要，不要加額外說明。'
+  const prompt = `搜尋查詢：「${query}」
 
-  // Process each page individually in parallel to avoid LLM timeout on large batches
-  const promises = results.map(async (r) => {
-    const prompt = `搜尋查詢：「${query}」
+針對每個來源，提取與查詢最相關的 1-2 段摘要，每段不超過 150 字。
 
-從以下網頁內容中，提取與查詢最相關的 2-3 段摘要。
-每段摘要不超過 200 字，保留關鍵數據和事實。
-用 [...] 分隔每段摘要。只輸出摘要內容。
+格式：
+[來源 1]
+摘要
 
-${r.rawContent}`
+[來源 2]
+摘要
 
-    try {
-      const response = await llmGenerate(env, prompt, systemPrompt)
-      chunks.set(r.url, response)
-    } catch {
+${pages}`
+
+  try {
+    const response = await llmGenerate(env, prompt, systemPrompt)
+    const sourceBlocks = response.split(/\[來源\s*\d+\]/).filter(Boolean)
+    results.forEach((r, i) => {
+      if (sourceBlocks[i]) {
+        chunks.set(r.url, sourceBlocks[i].trim())
+      }
+    })
+  } catch {
+    results.forEach(r => {
       chunks.set(r.url, r.rawContent.slice(0, 500))
-    }
-  })
+    })
+  }
 
-  await Promise.all(promises)
   return chunks
 }
 
@@ -319,8 +333,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     // Advanced mode: fetch pages + semantic chunking
     if (searchDepth === 'advanced') {
-      // Fetch top pages in parallel (limit to 5 for latency)
-      const fetchTargets = results.slice(0, 5)
+      // Fetch top pages in parallel (limit to 3 to keep LLM processing under timeout)
+      const fetchTargets = results.slice(0, 3)
       const pageContents = await Promise.all(
         fetchTargets.map(r => fetchPageContent(r.url))
       )
