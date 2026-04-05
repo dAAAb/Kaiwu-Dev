@@ -353,9 +353,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     // Generate answer if requested
+    // In advanced mode, use Gemini (fast) since Ollama already spent time on chunking
     let answer: string | undefined
     if (includeAnswer) {
-      answer = await generateAnswer(env, body.query, results)
+      if (searchDepth === 'advanced') {
+        // Fast path — advanced already took time fetching/chunking, use Gemini for speed
+        const context = results.slice(0, 5)
+          .map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content || r.snippet}`)
+          .join('\n\n')
+        const sysPrompt = '你是 Kaiwu 搜尋助手。根據搜尋結果回答問題，引用來源編號。使用繁體中文回答。'
+        const prompt = `問題：${body.query}\n\n搜尋結果：\n${context}\n\n請根據以上搜尋結果，提供完整且精確的回答。在關鍵資訊後標注來源，如 [1][2]。`
+        answer = await llmGenerate(env, prompt, sysPrompt, true)
+      } else {
+        // Normal path — basic search, Ollama has bandwidth for this
+        answer = await generateAnswer(env, body.query, results)
+      }
     }
 
     // Deduct credits
