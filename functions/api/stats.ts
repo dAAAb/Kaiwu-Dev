@@ -1,11 +1,21 @@
 interface Env {
   DB: D1Database
+  // Optional display baselines (set in wrangler.toml [vars]). Added on top of
+  // real counts so early-stage numbers don't look empty. Default 0 = pure real.
+  STATS_BASELINE_USERS?: string
+  STATS_BASELINE_QUERIES?: string
+  STATS_BASELINE_TOKENS?: string
 }
 
 // Rough estimate of tokens processed per credit consumed.
 // A basic search returns ~5 snippets; advanced fetches & summarizes pages.
 // Derived from real credit usage — labelled as an estimate in the UI.
 const TOKENS_PER_CREDIT = 1500
+
+function baseline(v?: string): number {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,10 +39,10 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
     return Response.json(
       {
-        users: totalUsers,
-        queries: totalQueries,
+        users: totalUsers + baseline(env.STATS_BASELINE_USERS),
+        queries: totalQueries + baseline(env.STATS_BASELINE_QUERIES),
         credits: totalCredits,
-        tokens_estimated: totalCredits * TOKENS_PER_CREDIT,
+        tokens_estimated: totalCredits * TOKENS_PER_CREDIT + baseline(env.STATS_BASELINE_TOKENS),
         updated_at: new Date().toISOString(),
       },
       {

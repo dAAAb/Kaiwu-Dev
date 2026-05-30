@@ -9,5 +9,9 @@ database_id = "50e8d7fd-fa73-48d3-b59c-f4002aa8fbef"
 [vars]
 SEARXNG_URL = "https://searxngtw.zeabur.app"
 PRIVY_APP_ID = "cmnj7653v00400cky42ae3biw"
+# Landing-page stat baselines — added on top of real DB counts (functions/api/stats.ts)
+STATS_BASELINE_USERS = "120"
+STATS_BASELINE_QUERIES = "5000"
+STATS_BASELINE_TOKENS = "7500000"
 # GEMINI_API_KEY — set via: npx wrangler pages secret put GEMINI_API_KEY
 # OLLAMA_URL — set via: npx wrangler pages secret put OLLAMA_URL
