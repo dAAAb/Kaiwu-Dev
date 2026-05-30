@@ -1,0 +1,10 @@
+{
+  "name": "kaiwu",
+  "version": "0.1.0",
+  "description": "開物 Kaiwu — 中文世界的 AI 搜尋。搜尋與抓取繁簡雙語、無審查的網路內容，回傳 LLM-ready 結果。",
+  "author": { "name": "Kaiwu 開物", "url": "https://kaiwu.dev" },
+  "homepage": "https://kaiwu.dev/cli",
+  "repository": "https://github.com/dAAAb/Kaiwu-Dev",
+  "license": "MIT",
+  "keywords": ["search", "chinese", "繁體中文", "ai", "agent", "kaiwu", "tavily-alternative", "mcp"]
+}

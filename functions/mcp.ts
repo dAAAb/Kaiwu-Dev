@@ -13,7 +13,7 @@ const corsHeaders = {
 
 const SERVER_INFO = {
   name: 'kaiwu',
-  version: '0.2.0',
+  version: '0.3.0',
 }
 
 const TOOLS = [
@@ -48,6 +48,30 @@ const TOOLS = [
         },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'kaiwu_extract',
+    description: '從一個或多個 URL 抓取內容，轉成乾淨的 markdown 或純文字（自動移除導覽列、廣告等雜訊）。已有特定網址、想讀全文時使用。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        urls: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '要抓取的 URL 清單（最多 20 個）',
+        },
+        format: {
+          type: 'string',
+          enum: ['markdown', 'text'],
+          description: '輸出格式（預設 markdown）',
+        },
+        query: {
+          type: 'string',
+          description: '選填。只保留與此查詢相關的內容（LLM 語意過濾）',
+        },
+      },
+      required: ['urls'],
     },
   },
 ]
@@ -128,6 +152,56 @@ async function callSearch(env: Env, request: Request, args: any): Promise<string
   }
 
   output += `\n---\nCredits: ${data.credits_remaining} 剩餘`
+
+  return output
+}
+
+// ---------------------------------------------------------------------------
+// Call the extract API internally
+// ---------------------------------------------------------------------------
+async function callExtract(env: Env, request: Request, args: any): Promise<string> {
+  const url = new URL(request.url)
+  let apiKey = url.searchParams.get('apiKey')
+  if (!apiKey) {
+    const auth = request.headers.get('Authorization')
+    if (auth?.startsWith('Bearer ')) apiKey = auth.slice(7)
+  }
+
+  // Accept urls as array or comma-separated string
+  let urls = args.urls
+  if (typeof urls === 'string') urls = urls.split(',').map((s: string) => s.trim())
+
+  const extractUrl = `${url.origin}/v1/extract`
+  const res = await fetch(extractUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      urls,
+      format: args.format || 'markdown',
+      query: args.query,
+    }),
+  })
+
+  const data = await res.json() as any
+
+  if (data.error) {
+    return `抓取錯誤：${data.error}`
+  }
+
+  // Format results as readable text for LLM consumption
+  let output = `## 抓取結果（${data.success_count} 成功 / ${data.failed_count} 失敗）\n\n`
+  for (const r of data.results) {
+    if (r.status === 'success') {
+      output += `### ${r.title || r.url}\n${r.url}\n\n${r.content}\n\n---\n\n`
+    } else {
+      output += `### ✗ ${r.url}\n抓取失敗：${r.error}\n\n---\n\n`
+    }
+  }
+
+  output += `\nCredits: ${data.credits_remaining} 剩餘`
 
   return output
 }
@@ -229,22 +303,27 @@ async function handleMessage(env: Env, request: Request, msg: any): Promise<any 
 
     case 'tools/call': {
       const toolName = msg.params?.name
-      if (toolName !== 'kaiwu_search') {
-        return jsonrpcResponse(msg.id, {
-          content: [{ type: 'text', text: `未知的工具：${toolName}` }],
-          isError: true,
-        })
-      }
+      const args = msg.params?.arguments || {}
 
       try {
-        const text = await callSearch(env, request, msg.params?.arguments || {})
+        let text: string
+        if (toolName === 'kaiwu_search') {
+          text = await callSearch(env, request, args)
+        } else if (toolName === 'kaiwu_extract') {
+          text = await callExtract(env, request, args)
+        } else {
+          return jsonrpcResponse(msg.id, {
+            content: [{ type: 'text', text: `未知的工具：${toolName}` }],
+            isError: true,
+          })
+        }
         return jsonrpcResponse(msg.id, {
           content: [{ type: 'text', text }],
           isError: false,
         })
       } catch (e: any) {
         return jsonrpcResponse(msg.id, {
-          content: [{ type: 'text', text: `搜尋失敗：${e.message || '未知錯誤'}` }],
+          content: [{ type: 'text', text: `工具執行失敗：${e.message || '未知錯誤'}` }],
           isError: true,
         })
       }

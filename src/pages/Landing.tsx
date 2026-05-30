@@ -1,4 +1,5 @@
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
 
 export default function Landing() {
@@ -21,9 +22,12 @@ export default function Landing() {
       <nav className="landing-nav">
         <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontWeight: 800, fontSize: 20, color: '#f59e0b' }}>開物 Kaiwu</span>
-          <button onClick={handleGetStarted} className="btn btn-primary" style={{ padding: '8px 20px', fontSize: 14 }}>
-            {authenticated ? '進入儀表板' : '開始使用 →'}
-          </button>
+          <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+            <Link to="/cli" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: 14, fontWeight: 600 }}>CLI &amp; Skills</Link>
+            <button onClick={handleGetStarted} className="btn btn-primary" style={{ padding: '8px 20px', fontSize: 14 }}>
+              {authenticated ? '進入儀表板' : '開始使用 →'}
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -63,6 +67,9 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      {/* Stats */}
+      <StatsSection />
 
       {/* Features */}
       <section className="features">
@@ -144,11 +151,87 @@ export default function Landing() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Live stats — real numbers from /api/stats with a count-up animation
+// ---------------------------------------------------------------------------
+interface Stats {
+  users: number
+  queries: number
+  tokens_estimated: number
+}
+
+function StatsSection() {
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    fetch('/api/stats')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (alive) setStats(d) })
+      .catch(() => { if (alive) setFailed(true) })
+    return () => { alive = false }
+  }, [])
+
+  // Network error → don't render a broken section
+  if (failed) return null
+
+  return (
+    <section className="stats">
+      <div className="container">
+        <div className="stats-label">🔥 已經有開發者在用開物</div>
+        <div className="stats-grid">
+          <Stat value={stats?.users} suffix="+" label="註冊開發者" ready={!!stats} />
+          <Stat value={stats?.queries} suffix="+" label="搜尋查詢已處理" ready={!!stats} />
+          <Stat value={stats?.tokens_estimated} label="處理 token（估計）" ready={!!stats} />
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function formatCompact(n: number): { num: string; unit: string } {
+  if (n >= 1e9) return { num: (n / 1e9).toFixed(1).replace(/\.0$/, ''), unit: 'B' }
+  if (n >= 1e6) return { num: (n / 1e6).toFixed(1).replace(/\.0$/, ''), unit: 'M' }
+  if (n >= 1e4) return { num: (n / 1e3).toFixed(1).replace(/\.0$/, ''), unit: 'K' }
+  return { num: n.toLocaleString('en-US'), unit: '' }
+}
+
+function Stat({ value, label, suffix = '', ready }: { value?: number; label: string; suffix?: string; ready: boolean }) {
+  const [display, setDisplay] = useState(0)
+  const rafRef = useRef<number>()
+
+  useEffect(() => {
+    if (!ready || value === undefined) return
+    const target = value
+    const duration = 1400
+    const start = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min((now - start) / duration, 1)
+      const eased = 1 - Math.pow(1 - t, 3) // easeOutCubic
+      setDisplay(Math.round(target * eased))
+      if (t < 1) rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [ready, value])
+
+  const { num, unit } = formatCompact(display)
+  return (
+    <div className="stat">
+      <div className="stat-value">
+        {ready ? <>{num}<span className="stat-unit">{unit}{suffix}</span></> : <span className="stat-skeleton">—</span>}
+      </div>
+      <div className="stat-label">{label}</div>
+    </div>
+  )
+}
+
 const features = [
   { icon: '🔓', title: '無審查搜尋', desc: '不用百度、不經「合規引擎」。聚合 Google、DuckDuckGo、Brave — 你搜什麼就給什麼，完整的世界觀。' },
   { icon: '🌏', title: '繁簡雙語原生', desc: '不是翻譯，是真的懂。搜「人工智慧」也找「人工智能」，台灣用語和中國用語同時覆蓋。' },
   { icon: '⚡', title: '一步到位', desc: '搜尋 + 內容提取 + 摘要，一個 API call 搞定。回傳 LLM-ready 的乾淨 markdown，直接餵進你的 Agent。' },
-  { icon: '🔌', title: '即插即用', desc: 'MCP Server、OpenClaw Skill、LangChain Tool — 現有框架直接接。Tavily 能用的地方，開物都能用。' },
+  { icon: '🔌', title: '即插即用', desc: 'CLI（kw）、Claude Code / Cursor Agent Skills、MCP Server、LangChain Tool — 一行安裝接進你的 agent。Tavily 能用的地方，開物都能用。' },
   { icon: '🏝️', title: '台灣部署', desc: '數據不進中國、不經美國。台灣節點，東亞低延遲。適合注重數據主權的團隊。' },
   { icon: '💰', title: '開發者友善定價', desc: 'Free tier 1,000 搜/月免費。付費方案更多額度 — 比 Tavily 便宜。' },
 ]
@@ -207,6 +290,31 @@ const landingStyles = `
   .code-block .key { color: #60a5fa; }
   .code-block .str { color: #34d399; }
   .code-block .func { color: #fbbf24; }
+  .stats { padding: 40px 24px 20px; }
+  .stats-label {
+    text-align: center; color: var(--muted); font-size: 14px; font-weight: 600;
+    letter-spacing: 0.5px; margin-bottom: 28px;
+  }
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    max-width: 760px; margin: 0 auto;
+  }
+  .stat {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 28px 16px; text-align: center; transition: border-color 0.2s;
+  }
+  .stat:hover { border-color: rgba(245,158,11,0.4); }
+  .stat-value {
+    font-size: clamp(28px, 5vw, 44px); font-weight: 800; line-height: 1;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+  }
+  .stat-unit { font-size: 0.55em; font-weight: 700; margin-left: 2px; }
+  .stat-skeleton { color: var(--border); }
+  .stat-label { color: var(--muted); font-size: 13px; margin-top: 12px; }
+  @media (max-width: 560px) {
+    .stats-grid { grid-template-columns: 1fr; gap: 12px; }
+    .stat { padding: 20px 16px; }
+  }
   .features { padding: 80px 24px; }
   .features h2 { text-align: center; font-size: 32px; margin-bottom: 48px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }

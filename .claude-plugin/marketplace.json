@@ -1,0 +1,22 @@
+{
+  "name": "kaiwu",
+  "owner": {
+    "name": "Kaiwu 開物",
+    "url": "https://kaiwu.dev"
+  },
+  "metadata": {
+    "description": "開物 Kaiwu — 中文世界的 AI 搜尋 Skills。Chinese-world web search skills for AI coding agents.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "kaiwu",
+      "source": "./",
+      "description": "用開物 Kaiwu 搜尋與抓取中文網路內容 — 繁簡雙語、無審查、LLM-ready。Search and extract the Chinese-language web from your agent.",
+      "version": "0.1.0",
+      "author": { "name": "Kaiwu 開物", "url": "https://kaiwu.dev" },
+      "homepage": "https://kaiwu.dev/cli",
+      "keywords": ["search", "chinese", "ai", "agent", "kaiwu", "tavily-alternative"]
+    }
+  ]
+}
