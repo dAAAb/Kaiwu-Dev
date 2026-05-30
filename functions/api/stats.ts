@@ -12,9 +12,15 @@ interface Env {
 // Derived from real credit usage — labelled as an estimate in the UI.
 const TOKENS_PER_CREDIT = 1500
 
-function baseline(v?: string): number {
+// Cloudflare Pages git deploys don't apply wrangler.toml [vars] at runtime, so
+// the approved baselines live here as code defaults. An env var (set in the
+// dashboard) overrides them; set it to "0" to disable a baseline entirely.
+const DEFAULT_BASELINE = { users: 120, queries: 5000, tokens: 7_500_000 }
+
+function baseline(v: string | undefined, fallback: number): number {
+  if (v === undefined || v === '') return fallback
   const n = Number(v)
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback
 }
 
 const corsHeaders = {
@@ -39,10 +45,10 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
     return Response.json(
       {
-        users: totalUsers + baseline(env.STATS_BASELINE_USERS),
-        queries: totalQueries + baseline(env.STATS_BASELINE_QUERIES),
+        users: totalUsers + baseline(env.STATS_BASELINE_USERS, DEFAULT_BASELINE.users),
+        queries: totalQueries + baseline(env.STATS_BASELINE_QUERIES, DEFAULT_BASELINE.queries),
         credits: totalCredits,
-        tokens_estimated: totalCredits * TOKENS_PER_CREDIT + baseline(env.STATS_BASELINE_TOKENS),
+        tokens_estimated: totalCredits * TOKENS_PER_CREDIT + baseline(env.STATS_BASELINE_TOKENS, DEFAULT_BASELINE.tokens),
         updated_at: new Date().toISOString(),
       },
       {
