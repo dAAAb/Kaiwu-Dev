@@ -80,7 +80,9 @@ export const spec = {
         description:
           '以 SearXNG 聚合 Google / DuckDuckGo / Brave 搜尋，回傳給 LLM 最佳化的結果。`search_depth=basic` 回傳搜尋引擎 snippet；' +
           '`advanced` 另抓取前 3 筆結果的網頁全文並由 LLM 語意摘要為 `content`；`include_answer=true` 額外生成繁體中文綜合答案（附 [1][2] 來源標註）。' +
-          '\n\n額度：basic = 1、advanced = 2、include_answer 另 +1。額度不足時回 429 且不扣款。' +
+          '省略 `time_range` / `category`（或 `category=auto`）時，會先用 LLM 依查詢推斷時間窗、新聞／一般分類，並展開繁簡與官方名稱；呼叫端明確指定的值優先。' +
+          '搜尋引擎回空陣列時會對調分類或放寬時間再試；仍無結果則不生成答案、不加收 include_answer 額度，並回 `warning`。' +
+          '\n\n額度：basic = 1、advanced = 2、include_answer 另 +1（僅在有搜尋結果時）。額度不足時回 429 且不扣款。' +
           '\n\n回應中的 `credits_used` 為本月累計已用額度（含本次），`credits_remaining` 為剩餘額度。',
         security: [{ apiKey: [] }],
         'x-credits': { basic: 1, advanced: 2, include_answer: '+1', unit: 'credits per call' },
@@ -89,7 +91,7 @@ export const spec = {
           '200': jsonBody('SearchResponse', '搜尋結果'),
           '400': errorResponse(
             '請求無效：JSON 無法解析（code=invalid_json）、缺少或空白 query（code=missing_query），' +
-            '或欄位型別／值不符（code=invalid_request：body 非 JSON 物件、query 非字串、max_results 非 0–20 的整數、time_range / search_depth 不在列舉內、include_answer 非布林）。',
+            '或欄位型別／值不符（code=invalid_request：body 非 JSON 物件、query 非字串、max_results 非 0–20 的整數、time_range / category / search_depth 不在列舉內、include_answer 非布林）。',
           ),
           '401': unauthorized,
           '429': insufficientCredits,
@@ -295,9 +297,19 @@ export const spec = {
             type: 'integer', minimum: 0, maximum: 20, default: 5,
             description: '回傳結果數（1–20）；超過 20 會被截為 20；0 或省略視同預設 5。負數、非整數或非數字 → 400 invalid_request。',
           },
-          time_range: { type: 'string', enum: ['day', 'week', 'month', 'year', 'all'], description: '時間範圍；`all` 或省略 = 不限。列舉以外的值 → 400 invalid_request。' },
+          time_range: {
+            type: 'string',
+            enum: ['day', 'week', 'month', 'year', 'all'],
+            description: '時間範圍。省略則依查詢語意推斷；明確傳入則覆蓋推斷。`all` = 不限。列舉以外的值 → 400 invalid_request。',
+          },
+          category: {
+            type: 'string',
+            enum: ['general', 'news', 'auto'],
+            default: 'auto',
+            description: 'SearXNG 分類。`auto` 或省略 = 依查詢推斷（時事走 news）；`general` / `news` 覆蓋推斷。',
+          },
           search_depth: { type: 'string', enum: ['basic', 'advanced'], default: 'basic', description: 'basic：snippet（1 額度）。advanced：抓前 3 筆網頁 + LLM 語意摘要為 content（2 額度）' },
-          include_answer: { type: 'boolean', default: false, description: '生成繁體中文綜合答案，附 [1][2] 來源標註（+1 額度）' },
+          include_answer: { type: 'boolean', default: false, description: '有搜尋結果時生成繁體中文綜合答案，附 [1][2] 來源標註（+1 額度）。無結果不加收、不生成答案。' },
         },
       },
       SearchResult: {
@@ -322,7 +334,24 @@ export const spec = {
           lang: { type: 'string' },
           search_depth: { type: 'string', enum: ['basic', 'advanced'] },
           results: { type: 'array', items: { $ref: '#/components/schemas/SearchResult' } },
-          answer: { type: 'string', description: '僅 include_answer=true：繁體中文綜合答案，含 [n] 來源標註' },
+          planned: {
+            type: 'object',
+            description: '實際採用的查詢規劃（推斷或呼叫端覆蓋後）。',
+            required: ['queries', 'category', 'time_range', 'source'],
+            properties: {
+              queries: { type: 'array', items: { type: 'string' }, description: '原查詢與展開變體（最多 3）' },
+              category: { type: 'string', enum: ['general', 'news'] },
+              time_range: { type: 'string', enum: ['day', 'week', 'month', 'year', 'all'] },
+              source: { type: 'string', enum: ['inferred', 'user', 'mixed'], description: 'inferred = 全由規劃；user = 分類與時間皆由呼叫端指定；mixed = 其一由呼叫端指定' },
+            },
+          },
+          warning: { type: 'string', description: '重試後仍無結果等可恢復情況的說明；此時不會有 answer' },
+          unresponsive_engines: {
+            type: 'array',
+            description: 'SearXNG 回報的失敗引擎，如 [["brave","too many requests"]]',
+            items: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 2 },
+          },
+          answer: { type: 'string', description: '僅 include_answer=true 且有結果：繁體中文綜合答案，含 [n] 來源標註' },
           credits_used: { type: 'integer', description: '本月累計已用額度（含本次扣除）' },
           credits_remaining: { type: 'integer', description: '本次扣除後的剩餘額度' },
         },

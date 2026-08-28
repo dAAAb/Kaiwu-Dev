@@ -26,6 +26,8 @@ export default function Playground({ apiKeys }: { apiKeys: ApiKey[] }) {
   const [maxResults, setMaxResults] = useState('5')
   const maxResultsValue = Math.max(1, Math.min(20, Number(maxResults) || 5))
   const [searchDepth, setSearchDepth] = useState<'basic' | 'advanced'>('basic')
+  const [timeRange, setTimeRange] = useState<'auto' | 'day' | 'week' | 'month' | 'year' | 'all'>('auto')
+  const [category, setCategory] = useState<'auto' | 'general' | 'news'>('auto')
   const [includeAnswer, setIncludeAnswer] = useState(false)
 
   // /v1/extract
@@ -66,7 +68,15 @@ export default function Playground({ apiKeys }: { apiKeys: ApiKey[] }) {
       const endpoint = mode === 'search' ? '/v1/search' : '/v1/extract'
       const body =
         mode === 'search'
-          ? { query: query.trim(), lang, max_results: maxResultsValue, search_depth: searchDepth, include_answer: includeAnswer }
+          ? {
+              query: query.trim(),
+              lang,
+              max_results: maxResultsValue,
+              search_depth: searchDepth,
+              include_answer: includeAnswer,
+              ...(timeRange !== 'auto' ? { time_range: timeRange } : {}),
+              ...(category !== 'auto' ? { category } : {}),
+            }
           : { urls, format }
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -172,7 +182,7 @@ export default function Playground({ apiKeys }: { apiKeys: ApiKey[] }) {
                 autoComplete="off"
               />
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label htmlFor="pg-lang" className="field-label">
                   語言
@@ -212,6 +222,39 @@ export default function Playground({ apiKeys }: { apiKeys: ApiKey[] }) {
                 >
                   <option value="basic">basic · 快速摘要</option>
                   <option value="advanced">advanced · 全文＋語意摘要（+1 點）</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="pg-time" className="field-label">
+                  時間範圍
+                </label>
+                <select
+                  id="pg-time"
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value as typeof timeRange)}
+                  className="select"
+                >
+                  <option value="auto">自動（依查詢推斷）</option>
+                  <option value="day">day · 一天</option>
+                  <option value="week">week · 一週</option>
+                  <option value="month">month · 一個月</option>
+                  <option value="year">year · 一年</option>
+                  <option value="all">all · 不限</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="pg-category" className="field-label">
+                  分類
+                </label>
+                <select
+                  id="pg-category"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as typeof category)}
+                  className="select"
+                >
+                  <option value="auto">自動（依查詢推斷）</option>
+                  <option value="general">general · 一般網頁</option>
+                  <option value="news">news · 新聞</option>
                 </select>
               </div>
               <div>
@@ -297,7 +340,7 @@ export default function Playground({ apiKeys }: { apiKeys: ApiKey[] }) {
               {mode === 'search' ? (
                 <>
                   本次預估消耗 <strong className="text-fg">{searchCredits}</strong> 點
-                  <span className="text-fg-subtle">（基本 1 點；advanced +1；綜合答案 +1）</span>
+                  <span className="text-fg-subtle">（基本 1 點；advanced +1；綜合答案有結果才 +1）</span>
                 </>
               ) : (
                 <>

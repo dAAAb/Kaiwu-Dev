@@ -86,7 +86,7 @@ function maskKey(key) {
 const BOOL_FLAGS = new Set(['json', 'answer', 'a', 'advanced', 'help', 'h', 'version', 'v'])
 const GLOBAL_FLAGS = new Set(['json', 'o', 'output', 'help', 'h', 'version', 'v'])
 const COMMAND_FLAGS = {
-  search: ['depth', 'd', 'max-results', 'n', 'time-range', 't', 'lang', 'l', 'answer', 'a', 'advanced'],
+  search: ['depth', 'd', 'max-results', 'n', 'time-range', 't', 'category', 'lang', 'l', 'answer', 'a', 'advanced'],
   extract: ['format', 'f', 'query', 'q'],
   login: [], logout: [], credits: [], config: [], help: [], version: [],
 }
@@ -314,8 +314,10 @@ async function cmdSearch(args) {
     if (!Number.isInteger(num) || num < 1 || num > 20) die(`--max-results 必須是 1–20 的整數（收到 "${n}"）。`)
     body.max_results = num
   }
-  const tr = requireValue('--time-range', flag(args, 'time-range', 't'), ['day', 'week', 'month', 'year'])
+  const tr = requireValue('--time-range', flag(args, 'time-range', 't'), ['day', 'week', 'month', 'year', 'all'])
   if (tr) body.time_range = tr
+  const cat = requireValue('--category', flag(args, 'category'), ['general', 'news', 'auto'])
+  if (cat) body.category = cat
   const lang = requireValue('--lang', flag(args, 'lang', 'l'))
   if (lang) body.lang = lang
   if (args.answer || args.a) body.include_answer = true
@@ -327,9 +329,12 @@ async function cmdSearch(args) {
   if (data.answer) {
     process.stdout.write('\n' + amber('▌ 答案') + '\n' + data.answer + '\n')
   }
+  if (data.warning) {
+    process.stdout.write('\n' + dim(data.warning) + '\n')
+  }
   const results = Array.isArray(data.results) ? data.results : []
   process.stdout.write('\n' + amber(`▌ ${results.length} 筆結果`) + dim(` · ${data.search_depth} · 剩餘 ${data.credits_remaining} 額度`) + '\n\n')
-  if (!results.length) process.stdout.write(dim('（沒有結果，試試更短的關鍵詞或不同語言）\n\n'))
+  if (!results.length) process.stdout.write(dim('（沒有結果，試試更短的關鍵詞、指定 --category news，或放寬 --time-range）\n\n'))
   results.forEach((r, i) => {
     process.stdout.write(bold(`${i + 1}. ${r.title || '(無標題)'}`) + (r.published ? dim(`  ${r.published}`) : '') + '\n')
     process.stdout.write(cyan(r.url) + '\n')
@@ -437,9 +442,11 @@ ${bold('指令')}
 ${bold('search 選項')}
   --depth, -d <basic|advanced>   搜尋深度（advanced 會抓網頁 + 語意摘要，2 額度）
   --max-results, -n <1-20>       結果數量（預設 5）
-  --time-range, -t <day|week|month|year>
+  --time-range, -t <day|week|month|year|all>
+                                 時間範圍（省略則依查詢推斷）
+  --category <general|news|auto> 分類（預設 auto：時事走新聞）
   --lang, -l <zh-TW|zh-CN|en>    語言（預設 zh-TW）
-  --answer, -a                   生成 AI 綜合答案（+1 額度）
+  --answer, -a                   生成 AI 綜合答案（有結果時 +1 額度）
 
 ${bold('extract 選項')}
   --format, -f <markdown|text>   輸出格式（預設 markdown）
