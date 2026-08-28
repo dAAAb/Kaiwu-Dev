@@ -99,7 +99,10 @@ async function rebuild(src: Response, status: number, extra: Record<string, stri
     return vary304(r)
   }
   const robots = src.headers.get('x-robots-tag')
-  let etag = src.headers.get('etag')
+  // Always derive the HTML validator from the bytes we actually send: the asset server's ETag for
+  // .html files is inconsistent between local dev and production, and a wrong one is worse than none.
+  const isHtml = /text\/html/i.test(extra['content-type'] || '')
+  let etag = isHtml ? null : src.headers.get('etag')
   let body: BodyInit | null = src.body
   if (!etag && status === 200) {
     const buf = await src.arrayBuffer()
