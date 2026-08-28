@@ -42,7 +42,8 @@ const SAMPLE_RESPONSE = `{
     }
   ],
   "answer": "台灣《人工智慧基本法》草案以七項原則為核心…[1][2]",
-  "credits_used": 3
+  "credits_used": 42,
+  "credits_remaining": 958
 }`
 
 /* ─────────────────────────────────────────────────────────────
