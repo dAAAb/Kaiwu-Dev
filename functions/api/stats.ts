@@ -25,7 +25,7 @@ function baseline(v: string | undefined, fallback: number): number {
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
@@ -60,8 +60,14 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       },
     )
   } catch {
-    return Response.json({ error: 'stats unavailable' }, { status: 500, headers: corsHeaders })
+    return Response.json({ error: 'stats unavailable', code: 'internal_error' }, { status: 500, headers: corsHeaders })
   }
+}
+
+// HEAD mirrors GET (same status, Content-Type and Cache-Control; body dropped).
+export const onRequestHead: PagesFunction<Env> = async (context) => {
+  const res = await onRequestGet(context)
+  return new Response(null, res)
 }
 
 export const onRequestOptions: PagesFunction = async () => {

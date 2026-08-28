@@ -1,3 +1,6 @@
+import { lookupApiKey, type ApiKeyRecord } from './_lib/auth'
+import { isPlainObject } from './_lib/validate'
+
 interface Env {
   DB: D1Database
   SEARXNG_URL: string
@@ -77,25 +80,32 @@ const TOOLS = [
 ]
 
 // ---------------------------------------------------------------------------
-// Auth: validate API key from query param or header
+// Auth: validate API key from header or query param
 // ---------------------------------------------------------------------------
+type KeyRow = ApiKeyRecord
+type AuthErrorCode = 'missing_api_key' | 'invalid_api_key'
+
+// Resolve the API key: `Authorization: Bearer kw_…` header first, then the
+// legacy `?apiKey=` query parameter (kept for clients that cannot set headers).
+function getApiKey(request: Request): string | null {
+  const auth = request.headers.get('Authorization')
+  if (auth?.startsWith('Bearer ')) {
+    const fromHeader = auth.slice(7).trim()
+    if (fromHeader) return fromHeader
+  }
+  return new URL(request.url).searchParams.get('apiKey')
+}
+
 async function validateApiKey(
   env: Env,
   request: Request,
-): Promise<{ id: string; user_id: string; credits_used: number; monthly_credits: number } | null> {
-  const url = new URL(request.url)
-  let apiKey = url.searchParams.get('apiKey')
+): Promise<{ keyRow: KeyRow | null; code: AuthErrorCode | null }> {
+  const apiKey = getApiKey(request)
+  if (!apiKey) return { keyRow: null, code: 'missing_api_key' }
 
-  if (!apiKey) {
-    const auth = request.headers.get('Authorization')
-    if (auth?.startsWith('Bearer ')) apiKey = auth.slice(7)
-  }
-
-  if (!apiKey) return null
-
-  return env.DB.prepare(
-    'SELECT ak.id, ak.user_id, u.credits_used, u.monthly_credits FROM api_keys ak JOIN users u ON ak.user_id = u.id WHERE ak.key_prefix = ? AND ak.revoked = 0'
-  ).bind(apiKey.slice(0, 12)).first<{ id: string; user_id: string; credits_used: number; monthly_credits: number }>()
+  // Shared full-key lookup (key_prefix + key_hash) with lazy monthly credit reset
+  const keyRow = await lookupApiKey(env, apiKey)
+  return keyRow ? { keyRow, code: null } : { keyRow: null, code: 'invalid_api_key' }
 }
 
 // ---------------------------------------------------------------------------
@@ -103,11 +113,7 @@ async function validateApiKey(
 // ---------------------------------------------------------------------------
 async function callSearch(env: Env, request: Request, args: any): Promise<string> {
   const url = new URL(request.url)
-  let apiKey = url.searchParams.get('apiKey')
-  if (!apiKey) {
-    const auth = request.headers.get('Authorization')
-    if (auth?.startsWith('Bearer ')) apiKey = auth.slice(7)
-  }
+  const apiKey = getApiKey(request)
 
   const searchUrl = `${url.origin}/v1/search`
   const res = await fetch(searchUrl, {
@@ -120,7 +126,9 @@ async function callSearch(env: Env, request: Request, args: any): Promise<string
       query: args.query,
       search_depth: args.search_depth || 'basic',
       include_answer: args.include_answer || false,
-      max_results: args.max_results || 5,
+      // Forwarded as-is: /v1/search applies the shared max_results rules
+      // (omitted/0 → 5, 1–20 clamped, otherwise 400 invalid_request).
+      max_results: args.max_results,
       lang: args.lang || 'zh-TW',
       time_range: args.time_range,
     }),
@@ -161,11 +169,7 @@ async function callSearch(env: Env, request: Request, args: any): Promise<string
 // ---------------------------------------------------------------------------
 async function callExtract(env: Env, request: Request, args: any): Promise<string> {
   const url = new URL(request.url)
-  let apiKey = url.searchParams.get('apiKey')
-  if (!apiKey) {
-    const auth = request.headers.get('Authorization')
-    if (auth?.startsWith('Bearer ')) apiKey = auth.slice(7)
-  }
+  const apiKey = getApiKey(request)
 
   // Accept urls as array or comma-separated string
   let urls = args.urls
@@ -213,8 +217,8 @@ function jsonrpcResponse(id: number | string, result: any) {
   return { jsonrpc: '2.0', id, result }
 }
 
-function jsonrpcError(id: number | string | null, code: number, message: string) {
-  return { jsonrpc: '2.0', id, error: { code, message } }
+function jsonrpcError(id: number | string | null, code: number, message: string, data?: Record<string, unknown>) {
+  return { jsonrpc: '2.0', id, error: data ? { code, message, data } : { code, message } }
 }
 
 // Format as SSE event (matching Tavily's format)
@@ -238,10 +242,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { request, env } = context
 
   // Validate API key
-  const keyRow = await validateApiKey(env, request)
+  const { keyRow, code: authCode } = await validateApiKey(env, request)
   if (!keyRow) {
     return sseResponse(
-      jsonrpcError(null, -32000, '需要 API 金鑰。請在 URL 加上 ?apiKey=kw_xxx 或使用 Authorization header。'),
+      jsonrpcError(null, -32000, '需要 API 金鑰。請在 URL 加上 ?apiKey=kw_xxx 或使用 Authorization header。', { code: authCode }),
     )
   }
 
@@ -249,7 +253,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     body = await request.json()
   } catch {
-    return sseResponse(jsonrpcError(null, -32700, 'Parse error'))
+    return sseResponse(jsonrpcError(null, -32700, 'Parse error', { code: 'invalid_json' }))
+  }
+
+  // JSON-RPC 2.0: a request must be an object, a batch a non-empty array of objects.
+  // (`null`, numbers, strings, [] and batches with non-object entries all land here.)
+  const isBatch = Array.isArray(body)
+  if (isBatch ? body.length === 0 || !body.every(isPlainObject) : !isPlainObject(body)) {
+    return sseResponse(jsonrpcError(null, -32600, 'Invalid Request', { code: 'invalid_request' }))
   }
 
   // Handle batch requests
@@ -330,7 +341,7 @@ async function handleMessage(env: Env, request: Request, msg: any): Promise<any 
     }
 
     default:
-      return jsonrpcError(msg.id, -32601, `Method not found: ${msg.method}`)
+      return jsonrpcError(msg.id, -32601, `Method not found: ${msg.method}`, { code: 'method_not_found' })
   }
 }
 
@@ -340,11 +351,13 @@ async function handleMessage(env: Env, request: Request, msg: any): Promise<any 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
   const { request, env } = context
 
-  const keyRow = await validateApiKey(env, request)
+  const { keyRow, code: authCode } = await validateApiKey(env, request)
   if (!keyRow) {
+    // RFC 6750 §3.1: no error attribute when the request carried no credential.
+    const challenge = authCode === 'missing_api_key' ? 'Bearer realm="kaiwu"' : 'Bearer realm="kaiwu", error="invalid_token"'
     return Response.json(
-      { error: '需要 API 金鑰' },
-      { status: 401, headers: corsHeaders },
+      { error: '需要 API 金鑰', code: authCode },
+      { status: 401, headers: { ...corsHeaders, 'WWW-Authenticate': challenge } },
     )
   }
 
@@ -381,4 +394,10 @@ export const onRequestDelete: PagesFunction<Env> = async () => {
 // ---------------------------------------------------------------------------
 export const onRequestOptions: PagesFunction = async () => {
   return new Response(null, { headers: corsHeaders })
+}
+
+/** HEAD mirrors GET (status + headers, no body) so probes/uptime checks see the real auth state. */
+export const onRequestHead: PagesFunction<Env> = async (context) => {
+  const res = await onRequestGet(context)
+  return new Response(null, res)
 }

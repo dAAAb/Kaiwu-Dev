@@ -1,15 +1,11 @@
+import { lookupApiKey } from '../_lib/auth'
+import { isPublicHttpUrl, safeFetch, TooManyRedirectsError, UnsafeUrlError } from '../_lib/net'
+import { isPlainObject } from '../_lib/validate'
+
 interface Env {
   DB: D1Database
   GEMINI_API_KEY: string
   OLLAMA_URL?: string
-}
-
-interface ExtractRequest {
-  urls?: string | string[]
-  url?: string
-  query?: string
-  format?: 'markdown' | 'text'
-  include_raw?: boolean
 }
 
 interface ExtractResult {
@@ -135,60 +131,33 @@ function htmlToText(html: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// SSRF guard — block internal/private hosts and non-HTTP protocols
-// ---------------------------------------------------------------------------
-function isSafeUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-    if (!['http:', 'https:'].includes(parsed.protocol)) return false
-    const hostname = parsed.hostname.toLowerCase()
-    if (
-      hostname === 'localhost' ||
-      hostname.startsWith('127.') ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('172.') ||
-      hostname === '169.254.169.254' ||
-      hostname.endsWith('.internal') ||
-      hostname.endsWith('.local')
-    ) return false
-    return true
-  } catch {
-    return false
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Fetch + convert a single URL
+// SSRF guard lives in _lib/net (public http(s) hosts only; every redirect hop
+// is re-validated, max 5).
 // ---------------------------------------------------------------------------
 async function extractOne(
   url: string,
   format: 'markdown' | 'text',
   timeoutMs = 8000,
 ): Promise<ExtractResult> {
-  if (!isSafeUrl(url)) {
-    return { url, title: null, content: '', format, length: 0, status: 'failed', error: '無效或不允許的 URL' }
-  }
+  const failed = (error: string): ExtractResult => ({ url, title: null, content: '', format, length: 0, status: 'failed', error })
+  if (!isPublicHttpUrl(url)) return failed('無效或不允許的 URL')
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       headers: {
         'User-Agent': 'Kaiwu/1.0 (+https://kaiwu.dev; extract bot)',
         'Accept': 'text/html,application/xhtml+xml,text/plain',
       },
       signal: controller.signal,
-      redirect: 'follow',
     })
-    clearTimeout(timer)
 
-    if (!res.ok) {
-      return { url, title: null, content: '', format, length: 0, status: 'failed', error: `HTTP ${res.status}` }
-    }
+    if (!res.ok) return failed(`HTTP ${res.status}`)
     const contentType = res.headers.get('content-type') || ''
     if (!contentType.includes('text/html') && !contentType.includes('text/plain')) {
-      return { url, title: null, content: '', format, length: 0, status: 'failed', error: `不支援的內容類型: ${contentType}` }
+      return failed(`不支援的內容類型: ${contentType}`)
     }
 
     const html = await res.text()
@@ -196,9 +165,11 @@ async function extractOne(
     const content = format === 'text' ? htmlToText(html) : htmlToMarkdown(html)
     return { url, title, content, format, length: content.length, status: 'success' }
   } catch (e: any) {
+    if (e instanceof UnsafeUrlError) return failed('無效或不允許的 URL')
+    if (e instanceof TooManyRedirectsError) return failed('重新導向過多')
+    return failed(e?.name === 'AbortError' ? '逾時' : '抓取失敗')
+  } finally {
     clearTimeout(timer)
-    const msg = e?.name === 'AbortError' ? '逾時' : '抓取失敗'
-    return { url, title: null, content: '', format, length: 0, status: 'failed', error: msg }
   }
 }
 
@@ -236,48 +207,76 @@ async function llmGenerate(env: Env, prompt: string, systemPrompt: string): Prom
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
+function badRequest(error: string, code = 'invalid_request'): Response {
+  return Response.json({ error, code }, { status: 400, headers: corsHeaders })
+}
+
+// Any unexpected throw becomes the documented JSON 500 instead of a platform error page.
 export const onRequestPost: PagesFunction<Env> = async (context) => {
+  try {
+    return await handleExtract(context)
+  } catch {
+    return Response.json({ error: 'Internal error', code: 'internal_error' }, { status: 500, headers: corsHeaders })
+  }
+}
+
+async function handleExtract(context: Parameters<PagesFunction<Env>>[0]): Promise<Response> {
   const { request, env } = context
 
   // Auth
   const auth = request.headers.get('Authorization')
   if (!auth?.startsWith('Bearer ')) {
-    return Response.json({ error: '需要 API 金鑰' }, { status: 401, headers: corsHeaders })
+    return Response.json({ error: '需要 API 金鑰', code: 'missing_api_key' }, { status: 401, headers: corsHeaders })
   }
   const apiKey = auth.slice(7)
 
-  const keyRow = await env.DB.prepare(
-    'SELECT ak.id, ak.user_id, u.credits_used, u.monthly_credits FROM api_keys ak JOIN users u ON ak.user_id = u.id WHERE ak.key_prefix = ? AND ak.revoked = 0'
-  ).bind(apiKey.slice(0, 12)).first<{ id: string; user_id: string; credits_used: number; monthly_credits: number }>()
-
+  // Shared full-key lookup (key_prefix + key_hash) with lazy monthly credit reset
+  const keyRow = await lookupApiKey(env, apiKey)
   if (!keyRow) {
-    return Response.json({ error: '無效的 API 金鑰' }, { status: 401, headers: corsHeaders })
+    return Response.json({ error: '無效的 API 金鑰', code: 'invalid_api_key' }, { status: 401, headers: corsHeaders })
   }
 
-  // Parse body
-  let body: ExtractRequest
+  // Parse + validate body shape before touching any field
+  let raw: unknown
   try {
-    body = await request.json()
+    raw = await request.json()
   } catch {
-    return Response.json({ error: '無效的 JSON' }, { status: 400, headers: corsHeaders })
+    return badRequest('無效的 JSON', 'invalid_json')
   }
+  if (!isPlainObject(raw)) return badRequest('請求 body 必須是 JSON 物件')
+  const body = raw
 
   // Normalize URL input — accept url, urls (string or array), comma-separated
   let urls: string[] = []
-  if (Array.isArray(body.urls)) urls = body.urls
-  else if (typeof body.urls === 'string') urls = body.urls.split(',').map(s => s.trim())
-  else if (typeof body.url === 'string') urls = [body.url]
+  if (body.urls !== undefined && body.urls !== null) {
+    if (Array.isArray(body.urls)) {
+      if (!body.urls.every((u): u is string => typeof u === 'string')) return badRequest('urls 陣列的每個元素必須是字串')
+      urls = body.urls
+    } else if (typeof body.urls === 'string') {
+      urls = body.urls.split(',')
+    } else {
+      return badRequest('urls 必須是字串陣列或逗號分隔字串')
+    }
+  } else if (body.url !== undefined && body.url !== null) {
+    if (typeof body.url !== 'string') return badRequest('url 必須是字串')
+    urls = [body.url]
+  }
   urls = urls.map(u => u.trim()).filter(Boolean)
 
   if (urls.length === 0) {
-    return Response.json({ error: '缺少 urls 參數' }, { status: 400, headers: corsHeaders })
+    return badRequest('缺少 urls 參數', 'missing_urls')
   }
   if (urls.length > 20) {
-    return Response.json({ error: '一次最多 20 個 URL' }, { status: 400, headers: corsHeaders })
+    return badRequest('一次最多 20 個 URL', 'too_many_urls')
   }
 
+  if (body.format !== undefined && body.format !== null && body.format !== 'markdown' && body.format !== 'text') {
+    return badRequest('format 必須是 markdown 或 text')
+  }
   const format: 'markdown' | 'text' = body.format === 'text' ? 'text' : 'markdown'
-  const query = body.query?.trim()
+
+  if (body.query !== undefined && body.query !== null && typeof body.query !== 'string') return badRequest('query 必須是字串')
+  const query = typeof body.query === 'string' ? body.query.trim() : ''
 
   // Credits: 1 per URL, +1 if query-based LLM filtering is requested
   let creditsNeeded = urls.length
@@ -286,6 +285,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   if (keyRow.credits_used + creditsNeeded > keyRow.monthly_credits) {
     return Response.json({
       error: '額度不足',
+      code: 'insufficient_credits',
       credits_needed: creditsNeeded,
       credits_remaining: keyRow.monthly_credits - keyRow.credits_used,
     }, { status: 429, headers: corsHeaders })

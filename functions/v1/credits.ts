@@ -1,26 +1,27 @@
+import { lookupApiKey } from '../_lib/auth'
+
 interface Env {
   DB: D1Database
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+}
+
 export const onRequestGet: PagesFunction<Env> = async (context) => {
   const { request, env } = context
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  }
 
   const auth = request.headers.get('Authorization')
   if (!auth?.startsWith('Bearer ')) {
-    return Response.json({ error: '需要 API 金鑰' }, { status: 401, headers: corsHeaders })
+    return Response.json({ error: '需要 API 金鑰', code: 'missing_api_key' }, { status: 401, headers: corsHeaders })
   }
   const apiKey = auth.slice(7)
 
-  const row = await env.DB.prepare(
-    'SELECT u.monthly_credits, u.credits_used, u.credits_reset_at FROM api_keys ak JOIN users u ON ak.user_id = u.id WHERE ak.key_prefix = ? AND ak.revoked = 0'
-  ).bind(apiKey.slice(0, 12)).first<{ monthly_credits: number; credits_used: number; credits_reset_at: string }>()
-
+  // Shared full-key lookup (key_prefix + key_hash) with lazy monthly credit reset
+  const row = await lookupApiKey(env, apiKey)
   if (!row) {
-    return Response.json({ error: '無效的 API 金鑰' }, { status: 401, headers: corsHeaders })
+    return Response.json({ error: '無效的 API 金鑰', code: 'invalid_api_key' }, { status: 401, headers: corsHeaders })
   }
 
   return Response.json({
@@ -29,4 +30,10 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     credits_remaining: row.monthly_credits - row.credits_used,
     resets_at: row.credits_reset_at,
   }, { headers: corsHeaders })
+}
+
+// HEAD mirrors GET (same auth, status and headers; body dropped).
+export const onRequestHead: PagesFunction<Env> = async (context) => {
+  const res = await onRequestGet(context)
+  return new Response(null, res)
 }

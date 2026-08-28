@@ -1,3 +1,5 @@
+import { ensureMonthlyReset, nextMonthlyResetIso } from '../../_lib/auth'
+
 interface Env {
   DB: D1Database
   PRIVY_APP_ID: string
@@ -13,7 +15,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   const auth = request.headers.get('Authorization')
   if (!auth?.startsWith('Bearer ')) {
-    return Response.json({ error: 'Missing token' }, { status: 401, headers: corsHeaders })
+    return Response.json({ error: 'Missing token', code: 'missing_token' }, { status: 401, headers: corsHeaders })
   }
   const token = auth.slice(7)
 
@@ -36,20 +38,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       // Fallback: decode JWT payload (base64)
       const parts = token.split('.')
       if (parts.length !== 3) {
-        return Response.json({ error: 'Invalid token format' }, { status: 401, headers: corsHeaders })
+        return Response.json({ error: 'Invalid token format', code: 'invalid_token' }, { status: 401, headers: corsHeaders })
       }
       const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
       privyId = payload.sub || payload.sid || payload.iss
       if (!privyId) {
-        return Response.json({ error: 'Cannot extract user ID from token' }, { status: 401, headers: corsHeaders })
+        return Response.json({ error: 'Cannot extract user ID from token', code: 'invalid_token' }, { status: 401, headers: corsHeaders })
       }
     }
   } catch (e: any) {
-    return Response.json({ error: 'Auth failed: ' + e.message }, { status: 401, headers: corsHeaders })
+    return Response.json({ error: 'Auth failed: ' + e.message, code: 'auth_failed' }, { status: 401, headers: corsHeaders })
   }
 
   if (!privyId) {
-    return Response.json({ error: 'No user ID found' }, { status: 401, headers: corsHeaders })
+    return Response.json({ error: 'No user ID found', code: 'invalid_token' }, { status: 401, headers: corsHeaders })
   }
 
   // Upsert user
@@ -57,8 +59,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   if (!user) {
     const userId = crypto.randomUUID()
-    const now = new Date()
-    const resetAt = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString()
+    const resetAt = nextMonthlyResetIso()
 
     await env.DB.prepare(
       `INSERT INTO users (id, privy_id, email, monthly_credits, credits_used, credits_reset_at, created_at, updated_at)
@@ -78,9 +79,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     ).bind(keyId, userId, keyValue, keyPrefix).run()
 
     user = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first()
-  } else if (email && !user.email) {
-    await env.DB.prepare("UPDATE users SET email = ?, updated_at = datetime('now') WHERE id = ?").bind(email, user.id).run()
-    user = { ...user, email }
+  } else {
+    if (email && !user.email) {
+      await env.DB.prepare("UPDATE users SET email = ?, updated_at = datetime('now') WHERE id = ?").bind(email, user.id).run()
+      user = { ...user, email }
+    }
+    // Same lazy monthly reset the API applies, so the dashboard shows the reset value.
+    const state = await ensureMonthlyReset(env, user.id, { credits_used: user.credits_used, credits_reset_at: user.credits_reset_at })
+    user = { ...user, ...state }
   }
 
   // Get user's API keys (include full key for default key display)

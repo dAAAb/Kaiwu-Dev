@@ -1,17 +1,12 @@
+import { lookupApiKey } from '../_lib/auth'
+import { safeFetch } from '../_lib/net'
+import { isPlainObject, isTimeRange, parseMaxResults, TIME_RANGES } from '../_lib/validate'
+
 interface Env {
   DB: D1Database
   SEARXNG_URL: string
   GEMINI_API_KEY: string
   OLLAMA_URL?: string
-}
-
-interface SearchRequest {
-  query: string
-  lang?: string
-  max_results?: number
-  time_range?: string
-  search_depth?: 'basic' | 'advanced'
-  include_answer?: boolean
 }
 
 interface SearchResult {
@@ -61,33 +56,18 @@ function htmlToText(html: string): string {
 // Fetch page content with timeout
 // ---------------------------------------------------------------------------
 async function fetchPageContent(url: string, timeoutMs = 5000): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    // SSRF protection: block internal/private IPs and non-HTTP protocols
-    const parsed = new URL(url)
-    if (!['http:', 'https:'].includes(parsed.protocol)) return null
-    const hostname = parsed.hostname.toLowerCase()
-    if (
-      hostname === 'localhost' ||
-      hostname.startsWith('127.') ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('172.') ||
-      hostname === '169.254.169.254' ||
-      hostname.endsWith('.internal') ||
-      hostname.endsWith('.local')
-    ) return null
-
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
-    const res = await fetch(url, {
+    // SSRF protection lives in _lib/net: public http(s) hosts only, and every
+    // redirect hop is re-validated (max 5).
+    const res = await safeFetch(url, {
       headers: {
         'User-Agent': 'Kaiwu/1.0 (search bot)',
         'Accept': 'text/html,application/xhtml+xml',
       },
       signal: controller.signal,
-      redirect: 'follow',
     })
-    clearTimeout(timer)
 
     if (!res.ok) return null
     const contentType = res.headers.get('content-type') || ''
@@ -99,6 +79,8 @@ async function fetchPageContent(url: string, timeoutMs = 5000): Promise<string |
     return text.slice(0, 4000)
   } catch {
     return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -247,40 +229,71 @@ ${context}
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
+function badRequest(error: string, code = 'invalid_request'): Response {
+  return Response.json({ error, code }, { status: 400, headers: corsHeaders })
+}
+
+// Any unexpected throw becomes the documented JSON 500 instead of a platform error page.
 export const onRequestPost: PagesFunction<Env> = async (context) => {
+  try {
+    return await handleSearch(context)
+  } catch {
+    return Response.json({ error: 'Internal error', code: 'internal_error' }, { status: 500, headers: corsHeaders })
+  }
+}
+
+async function handleSearch(context: Parameters<PagesFunction<Env>>[0]): Promise<Response> {
   const { request, env } = context
 
   // Auth
   const auth = request.headers.get('Authorization')
   if (!auth?.startsWith('Bearer ')) {
-    return Response.json({ error: '需要 API 金鑰' }, { status: 401, headers: corsHeaders })
+    return Response.json({ error: '需要 API 金鑰', code: 'missing_api_key' }, { status: 401, headers: corsHeaders })
   }
   const apiKey = auth.slice(7)
 
-  const keyRow = await env.DB.prepare(
-    'SELECT ak.id, ak.user_id, u.credits_used, u.monthly_credits FROM api_keys ak JOIN users u ON ak.user_id = u.id WHERE ak.key_prefix = ? AND ak.revoked = 0'
-  ).bind(apiKey.slice(0, 12)).first<{ id: string; user_id: string; credits_used: number; monthly_credits: number }>()
-
+  // Shared full-key lookup (key_prefix + key_hash) with lazy monthly credit reset
+  const keyRow = await lookupApiKey(env, apiKey)
   if (!keyRow) {
-    return Response.json({ error: '無效的 API 金鑰' }, { status: 401, headers: corsHeaders })
+    return Response.json({ error: '無效的 API 金鑰', code: 'invalid_api_key' }, { status: 401, headers: corsHeaders })
   }
 
-  // Parse body
-  let body: SearchRequest
+  // Parse + validate body shape before touching any field
+  let raw: unknown
   try {
-    body = await request.json()
+    raw = await request.json()
   } catch {
-    return Response.json({ error: '無效的 JSON' }, { status: 400, headers: corsHeaders })
+    return badRequest('無效的 JSON', 'invalid_json')
   }
+  if (!isPlainObject(raw)) return badRequest('請求 body 必須是 JSON 物件')
+  const body = raw
 
-  if (!body.query?.trim()) {
-    return Response.json({ error: '缺少 query 參數' }, { status: 400, headers: corsHeaders })
+  if (body.query === undefined || body.query === null || (typeof body.query === 'string' && !body.query.trim())) {
+    return badRequest('缺少 query 參數', 'missing_query')
   }
+  if (typeof body.query !== 'string') return badRequest('query 必須是字串')
+  const query = body.query.trim()
 
-  const lang = body.lang || 'zh-TW'
-  const maxResults = Math.min(body.max_results || 5, 20)
-  const searchDepth = body.search_depth || 'basic'
-  const includeAnswer = body.include_answer || false
+  if (body.lang !== undefined && body.lang !== null && typeof body.lang !== 'string') return badRequest('lang 必須是字串')
+  const lang = (typeof body.lang === 'string' && body.lang.trim()) || 'zh-TW'
+
+  const maxResults = parseMaxResults(body.max_results)
+  if (maxResults === null) return badRequest('max_results 必須是 1–20 的整數（0 或省略 = 5）')
+
+  if (body.time_range !== undefined && body.time_range !== null && !isTimeRange(body.time_range)) {
+    return badRequest(`time_range 必須是 ${TIME_RANGES.join(' / ')} 之一`)
+  }
+  const timeRange = isTimeRange(body.time_range) ? body.time_range : 'all'
+
+  if (body.search_depth !== undefined && body.search_depth !== null && body.search_depth !== 'basic' && body.search_depth !== 'advanced') {
+    return badRequest('search_depth 必須是 basic 或 advanced')
+  }
+  const searchDepth: 'basic' | 'advanced' = body.search_depth === 'advanced' ? 'advanced' : 'basic'
+
+  if (body.include_answer !== undefined && body.include_answer !== null && typeof body.include_answer !== 'boolean') {
+    return badRequest('include_answer 必須是布林值')
+  }
+  const includeAnswer = body.include_answer === true
 
   // Calculate credits needed
   let creditsNeeded = 1
@@ -291,6 +304,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   if (keyRow.credits_used + creditsNeeded > keyRow.monthly_credits) {
     return Response.json({
       error: '額度不足',
+      code: 'insufficient_credits',
       credits_needed: creditsNeeded,
       credits_remaining: keyRow.monthly_credits - keyRow.credits_used,
     }, { status: 429, headers: corsHeaders })
@@ -300,12 +314,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   // Query SearXNG
   const params = new URLSearchParams({
-    q: body.query,
+    q: query,
     format: 'json',
     language: lang,
   })
-  if (body.time_range && body.time_range !== 'all') {
-    params.set('time_range', body.time_range)
+  if (timeRange !== 'all') {
+    params.set('time_range', timeRange)
   }
 
   try {
@@ -314,7 +328,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     })
 
     if (!searxRes.ok) {
-      return Response.json({ error: '搜尋引擎暫時無法使用' }, { status: 502, headers: corsHeaders })
+      return Response.json({ error: '搜尋引擎暫時無法使用', code: 'upstream_unavailable' }, { status: 502, headers: corsHeaders })
     }
 
     const searxData = await searxRes.json() as { results: any[] }
@@ -345,7 +359,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         .filter((p): p is { url: string; rawContent: string } => p.rawContent !== null)
 
       if (contentPairs.length > 0) {
-        const chunks = await semanticChunk(env, body.query, contentPairs)
+        const chunks = await semanticChunk(env, query, contentPairs)
         results = results.map(r => ({
           ...r,
           content: chunks.get(r.url) || undefined,
@@ -363,11 +377,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           .map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content || r.snippet}`)
           .join('\n\n')
         const sysPrompt = '你是 Kaiwu 搜尋助手。根據搜尋結果回答問題，引用來源編號。使用繁體中文回答。'
-        const prompt = `問題：${body.query}\n\n搜尋結果：\n${context}\n\n請根據以上搜尋結果，提供完整且精確的回答。在關鍵資訊後標注來源，如 [1][2]。`
+        const prompt = `問題：${query}\n\n搜尋結果：\n${context}\n\n請根據以上搜尋結果，提供完整且精確的回答。在關鍵資訊後標注來源，如 [1][2]。`
         answer = await llmGenerate(env, prompt, sysPrompt, true)
       } else {
         // Normal path — basic search, Ollama has bandwidth for this
-        answer = await generateAnswer(env, body.query, results)
+        answer = await generateAnswer(env, query, results)
       }
     }
 
@@ -378,11 +392,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       env.DB.prepare("UPDATE api_keys SET usage_count = usage_count + 1, last_used_at = datetime('now') WHERE id = ?")
         .bind(keyRow.id),
       env.DB.prepare("INSERT INTO usage_logs (id, api_key_id, endpoint, credits_used, query, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))")
-        .bind(crypto.randomUUID(), keyRow.id, '/v1/search', creditsNeeded, body.query),
+        .bind(crypto.randomUUID(), keyRow.id, '/v1/search', creditsNeeded, query),
     ])
 
     const response: any = {
-      query: body.query,
+      query,
       lang,
       search_depth: searchDepth,
       results,
@@ -396,7 +410,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     return Response.json(response, { headers: corsHeaders })
   } catch (e: any) {
-    return Response.json({ error: '搜尋失敗' }, { status: 500, headers: corsHeaders })
+    return Response.json({ error: '搜尋失敗', code: 'internal_error' }, { status: 500, headers: corsHeaders })
   }
 }
 
