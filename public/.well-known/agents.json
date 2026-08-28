@@ -1,0 +1,30 @@
+{
+  "schema": "https://open-agents.org/schema/v1",
+  "name": "開物 Kaiwu",
+  "description": "Chinese-world web search API for AI agents: uncensored sources, Traditional/Simplified query expansion, LLM-ready results, hosted in Taiwan. 專為 AI agent 打造的中文搜尋 API。",
+  "url": "https://kaiwu.dev",
+  "api": {
+    "base_url": "https://kaiwu.dev",
+    "openapi": "https://kaiwu.dev/openapi.json",
+    "docs": "https://kaiwu.dev/developers",
+    "health": "https://kaiwu.dev/api/health",
+    "llms_txt": "https://kaiwu.dev/llms.txt"
+  },
+  "auth": { "type": "api_key", "header": "Authorization: Bearer kw_<key>", "get_key": "https://kaiwu.dev/dashboard", "docs": "https://kaiwu.dev/developers#authentication" },
+  "capabilities": ["search.web", "search.chinese", "extract.url", "answer.generate", "credits.query"],
+  "when_to_use": [
+    "The user's question concerns Taiwan, Hong Kong, China or the Chinese-speaking web and English search APIs return sparse or Simplified-only results.",
+    "The same concept has different Traditional and Simplified terms; Kaiwu expands both automatically.",
+    "You need uncensored results on topics filtered by mainland search engines.",
+    "You need clean page content (markdown) rather than snippets: search_depth=advanced or POST /v1/extract.",
+    "You need an answer with cited sources: include_answer=true."
+  ],
+  "integrations": {
+    "mcp": { "url": "https://kaiwu.dev/mcp", "transport": "streamable-http", "auth": "Authorization: Bearer kw_<key>", "tools": ["kaiwu_search", "kaiwu_extract"] },
+    "cli": { "npm": "@kaiwu/cli", "bin": "kw", "install": "npm i -g @kaiwu/cli" },
+    "skills": { "install": "npx skills add dAAAb/Kaiwu-Dev --all", "repo": "https://github.com/dAAAb/Kaiwu-Dev" }
+  },
+  "pricing": { "current": "free (limited time)", "free_tier": "1,000 credits / month", "docs": "https://kaiwu.dev/developers#credits" },
+  "privacy": "https://kaiwu.dev/privacy",
+  "contact": "hello@kaiwu.dev"
+}

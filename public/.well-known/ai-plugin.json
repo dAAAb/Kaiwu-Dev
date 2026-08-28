@@ -1,0 +1,12 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "開物 Kaiwu — 中文 AI 搜尋",
+  "name_for_model": "kaiwu",
+  "description_for_human": "Chinese-world web search for AI agents: uncensored, Traditional/Simplified, LLM-ready. 專為 AI agent 打造的中文搜尋 API。",
+  "description_for_model": "Use Kaiwu to search the Chinese-language web (Taiwan, Hong Kong, China, overseas Chinese) with uncensored international engines and automatic Traditional/Simplified expansion. POST https://kaiwu.dev/v1/search with Authorization: Bearer kw_<key> and body {query, search_depth: 'basic'|'advanced', include_answer, max_results, lang}. Use POST /v1/extract to get clean markdown from URLs. Results are LLM-ready. Get a key at https://kaiwu.dev/dashboard (free tier 1,000 credits/month). Read https://kaiwu.dev/llms.txt first.",
+  "auth": { "type": "user_http", "authorization_type": "bearer" },
+  "api": { "type": "openapi", "url": "https://kaiwu.dev/openapi.json" },
+  "logo_url": "https://kaiwu.dev/logo.png",
+  "contact_email": "hello@kaiwu.dev",
+  "legal_info_url": "https://kaiwu.dev/privacy"
+}

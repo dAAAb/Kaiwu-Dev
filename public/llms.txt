@@ -1,0 +1,47 @@
+# 開物 Kaiwu
+
+> 開物 Kaiwu 是專為 AI agent 打造的中文搜尋 API。一個請求：POST https://kaiwu.dev/v1/search，Authorization: Bearer kw_…，回傳排序過的結果（title / url / snippet / content）與可選的綜合答案。無審查來源（Google、DuckDuckGo、Brave），繁體與簡體用語自動互查，結果為 LLM 設計，台灣部署。目前限時免費：每月 1,000 額度。
+
+Kaiwu is a Chinese-world web search API for AI agents: uncensored sources, automatic Traditional/Simplified query expansion, LLM-ready results, hosted in Taiwan. Free tier: 1,000 credits/month. All pages on kaiwu.dev also answer `Accept: text/markdown`.
+
+## 什麼時候該用開物 · When to use Kaiwu
+
+- [需要查中文資料時](https://kaiwu.dev/developers#search)：使用者的問題涉及台灣、香港、中國或華語世界的新聞、法規、公司、人物、產品，而英文搜尋 API 結果稀疏或只有簡體來源。
+- [需要繁簡互查時](https://kaiwu.dev/#features)：同一件事有兩套用語（軟體／软件、晶片／芯片）；開物會同時展開，不必自己列同義詞。
+- [需要未經審查的結果時](https://kaiwu.dev/about)：查政治、社會、歷史等在簡中引擎會被過濾的主題。
+- [需要網頁正文而非摘要時](https://kaiwu.dev/developers#extract)：用 search_depth "advanced" 或 POST /v1/extract 取得去除雜訊的 markdown 正文，並可依查詢語意過濾。
+- [需要附來源的答案時](https://kaiwu.dev/developers#search)：include_answer 會產生標注 [1][2] 來源的綜合回答。
+- [在 Claude Code / Cursor / MCP 客戶端裡](https://kaiwu.dev/cli)：安裝 skills 或加入 MCP server，agent 會在需要時自動呼叫。
+
+## 怎麼呼叫 · How to call
+
+- [快速開始](https://kaiwu.dev/developers#quickstart)：到 https://kaiwu.dev/dashboard 登入取得金鑰（kw_ 開頭）→ `POST /v1/search {"query":"…","search_depth":"basic|advanced","include_answer":true,"max_results":5,"lang":"zh-TW"}` → 回應 `{query, results[{title,url,snippet,content?,published,engine,score,language}], answer?, credits_used（本月累計）, credits_remaining}`。
+- [OpenAPI 3.1 規格](https://kaiwu.dev/openapi.json)：所有操作都有 operationId 與型別化的請求／回應，適合 function calling 與 client 產生。
+- [認證](https://kaiwu.dev/developers#authentication)：`Authorization: Bearer kw_…`；金鑰不過期、可在儀表板撤銷。401 會附 WWW-Authenticate。
+- [額度與速率](https://kaiwu.dev/developers#credits)：basic 1、advanced 2、include_answer +1；extract 每個成功網址 1、query +1。目前沒有硬性速率限制（建議 ≈1 req/s）；額度用完回 429（insufficient_credits）。GET /v1/credits 查餘額。
+- [錯誤格式](https://kaiwu.dev/developers#errors)：JSON `{error, code}`；未知路徑回真正的 404。
+- [MCP Server](https://kaiwu.dev/developers#mcp)：`https://kaiwu.dev/mcp`（Streamable HTTP），工具 kaiwu_search、kaiwu_extract；`claude mcp add --transport http kaiwu https://kaiwu.dev/mcp --header "Authorization: Bearer $KAIWU_API_KEY"`。
+- [CLI 與 Skills](https://kaiwu.dev/cli)：`npm i -g @kaiwu/cli && kw login`；`kw search "…" --answer --json`；`npx skills add dAAAb/Kaiwu-Dev --all`。
+
+## 文件 · Docs
+
+- [開發者文件](https://kaiwu.dev/developers)：快速開始、認證、參數、額度、錯誤、MCP、版本政策、變更紀錄。
+- [CLI & Agent Skills](https://kaiwu.dev/cli)：kw 指令與 kaiwu-* skills。
+- [GitHub](https://github.com/dAAAb/Kaiwu-Dev)：原始碼、skills、plugin marketplace。
+- [服務狀態](https://kaiwu.dev/api/health)：GET，回 `{ok:true}`。
+- [公開統計](https://kaiwu.dev/api/stats)：註冊開發者數、已處理查詢（含公開的基線偏移）。
+
+## 產品 · Product
+
+- [首頁](https://kaiwu.dev/)：開物是什麼、運作方式、比較、定價（限時免費）、FAQ。
+- [儀表板](https://kaiwu.dev/dashboard)：登入、建立金鑰、測試場、MCP 設定、額度。
+- [關於](https://kaiwu.dev/about)：團隊、理念、架構、資料路徑。
+- [聯絡](https://kaiwu.dev/contact)：hello@kaiwu.dev、資安通報、合作。
+- [隱私權政策](https://kaiwu.dev/privacy)：儲存什麼、放在哪、保存多久、如何刪除。
+
+## Optional
+
+- [llms-full.txt](https://kaiwu.dev/llms-full.txt)：本檔加上開發者文件、CLI 文件與關於頁的 Markdown 全文。
+- [Sitemap](https://kaiwu.dev/sitemap.xml)：所有可索引網址。
+- [Agent manifest](https://kaiwu.dev/.well-known/agents.json)：能力、標準與探索連結。
+- [AI plugin manifest](https://kaiwu.dev/.well-known/ai-plugin.json)：OpenAPI 指標。

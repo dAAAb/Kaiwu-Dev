@@ -1,0 +1,21 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /dashboard/
+
+# AI crawlers are welcome; every page also serves Markdown via Accept: text/markdown.
+User-agent: GPTBot
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://kaiwu.dev/sitemap.xml
+
+# Machine-readable entry points
+# llms.txt:      https://kaiwu.dev/llms.txt
+# llms-full.txt: https://kaiwu.dev/llms-full.txt
+# OpenAPI:       https://kaiwu.dev/openapi.json
