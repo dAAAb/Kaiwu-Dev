@@ -1,3 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <text y="80" font-size="80">🔍</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#F59E0B"/><circle cx="9.5" cy="9.5" r="3.6" fill="none" stroke="#0A0E1A" stroke-width="1.9"/><path d="M12.3 12.3 17 17" stroke="#0A0E1A" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="7" r="1.1" fill="#0A0E1A"/><circle cx="7" cy="17.2" r="1.1" fill="#0A0E1A"/></svg>

@@ -3,8 +3,14 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __BUILD_YEAR__: JSON.stringify(new Date().getFullYear()),
+  },
   build: {
     target: 'es2020',
     outDir: 'dist',
+  },
+  ssr: {
+    noExternal: [],
   },
 })

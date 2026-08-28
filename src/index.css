@@ -2,35 +2,164 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Self-hosted Latin fonts (variable, OFL). CJK comes from the OS. ── */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Inter-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMono-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial'), local('Helvetica Neue'), local('Helvetica');
+  size-adjust: 107%;
+  ascent-override: 90%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+
+/* ── Tokens (see DESIGN.md) ── */
 :root {
   --bg: #0a0e1a;
   --surface: #111827;
-  --border: #1e293b;
-  --text: #e2e8f0;
-  --muted: #94a3b8;
+  --surface-2: #182135;
+  --line: rgba(148, 163, 184, 0.14);
+  --line-strong: rgba(148, 163, 184, 0.28);
+  --fg: #e8edf5;
+  --fg-muted: #a3afc2;
+  --fg-subtle: #7c8aa3;
   --accent: #f59e0b;
-  --accent2: #3b82f6;
-  --green: #10b981;
+  --accent-hover: #fbbf24;
+  --filament: #38bdf8;
+  /* legacy names used by older components */
+  --border: var(--line);
+  --text: var(--fg);
+  --muted: var(--fg-muted);
+  --accent2: var(--filament);
+  --green: #22c55e;
+  color-scheme: dark;
 }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-  overflow-x: hidden;
-  font-size: 17px;
-  line-height: 1.65;
-}
-
-/* Dashboard: larger base font on desktop */
-@media (min-width: 1024px) {
-  .dashboard-content {
-    font-size: 18px;
-    line-height: 1.7;
+@layer base {
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: 4.5rem; }
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    font-size: 16px;
+    line-height: 1.8;
+    overflow-x: hidden;
+    font-feature-settings: 'cv11', 'ss01';
   }
-  .dashboard-content h1 { font-size: 28px; }
-  .dashboard-content h2 { font-size: 22px; }
+  h1, h2, h3, h4 { text-wrap: balance; line-height: 1.25; font-weight: 600; }
+  code, kbd, pre, samp, .font-mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+  ::selection { background: rgba(245, 158, 11, 0.3); }
+  :focus-visible { outline: 2px solid rgba(245, 158, 11, 0.85); outline-offset: 2px; }
+  .code-panel pre:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.85); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  }
 }
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold
+      whitespace-nowrap select-none transition-colors duration-150
+      disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none;
+  }
+  .btn-primary { @apply bg-accent text-bg hover:bg-accent-hover; }
+  .btn-secondary { @apply bg-surface-2 text-fg border border-line hover:border-line-strong hover:bg-[#1d2740]; }
+  .btn-ghost { @apply bg-transparent text-fg-muted hover:text-fg hover:bg-surface-2; }
+  .btn-danger { @apply bg-danger/10 text-danger border border-danger/30 hover:bg-danger/20; }
+  .btn-sm { @apply h-8 px-3 text-xs rounded-md; }
+  .btn-lg { @apply h-12 px-6 text-base; }
+  .btn-icon { @apply w-9 h-9 p-0; }
+
+  .card { @apply bg-surface border border-line rounded-2xl p-5 sm:p-6; }
+  .card-inset { @apply bg-surface-2 border border-line rounded-xl p-4; }
+  .card-hover { @apply transition-colors duration-150 hover:border-line-strong; }
+
+  .input {
+    @apply w-full h-10 px-3 rounded-lg bg-surface-2 border border-line text-fg text-base sm:text-sm
+      placeholder:text-fg-subtle transition-colors duration-150
+      focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:opacity-50;
+  }
+  .input-lg { @apply h-12 px-4 text-base; }
+  .input-mono { @apply font-mono; }
+  .textarea { @apply input h-auto py-2.5 leading-relaxed resize-y min-h-[8rem]; }
+  .select { @apply input appearance-none pr-9 bg-no-repeat bg-[right_0.75rem_center]; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23a3afc2' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E"); }
+  .field-label { @apply block text-xs font-medium text-fg-muted mb-1.5; }
+  .field-hint { @apply mt-1.5 text-xs text-fg-subtle; }
+  .input-group { @apply flex items-center h-10 rounded-lg bg-surface-2 border border-line focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25 transition-colors; }
+  .input-group > input { @apply flex-1 min-w-0 h-full px-3 bg-transparent text-fg text-base sm:text-sm placeholder:text-fg-subtle focus:outline-none; }
+  .input-group > .suffix { @apply px-3 text-sm text-fg-subtle font-mono whitespace-nowrap; }
+
+  .badge { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium leading-5 whitespace-nowrap; }
+  .badge-accent { @apply bg-accent-soft text-[#fbbf24]; }
+  .badge-filament { @apply bg-filament-soft text-[#7dd3fc]; }
+  .badge-success { @apply bg-success/15 text-[#4ade80]; }
+  .badge-warning { @apply bg-warning/15 text-[#fbbf24]; }
+  .badge-danger { @apply bg-danger/15 text-[#f87171]; }
+  .badge-neutral { @apply bg-white/[0.06] text-fg-muted; }
+
+  .eyebrow { @apply text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle; }
+  .link { @apply text-[#fbbf24] hover:text-[#fde68a] underline-offset-4 hover:underline; }
+
+  .container-x { @apply mx-auto w-full max-w-6xl px-5 sm:px-8; }
+  .section { @apply py-16 sm:py-24; }
+  .table-wrap { @apply overflow-x-auto -mx-5 px-5 sm:mx-0 sm:px-0; }
+  .divider { @apply border-t border-line; }
+
+  .skeleton {
+    @apply rounded-md bg-surface-2;
+    background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+
+  /* Long-form copy (static pages, docs) — Chinese-first rhythm */
+  .prose-kaiwu { @apply max-w-none text-fg-muted leading-[1.85]; }
+  .prose-kaiwu h2 { @apply text-h2 font-semibold text-fg mt-12 mb-4; }
+  .prose-kaiwu h3 { @apply text-h3 font-semibold text-fg mt-8 mb-3; }
+  .prose-kaiwu p { @apply my-3; }
+  .prose-kaiwu ul, .prose-kaiwu ol { @apply my-3 pl-6 space-y-1.5; }
+  .prose-kaiwu ul { @apply list-disc; }
+  .prose-kaiwu ol { @apply list-decimal; }
+  .prose-kaiwu a { @apply link; }
+  .prose-kaiwu strong { @apply text-fg font-semibold; }
+  .prose-kaiwu code { @apply text-fg bg-surface-2 px-1.5 py-0.5 rounded-md text-[0.9em]; }
+  .prose-kaiwu pre { @apply code-panel my-4; }
+  .prose-kaiwu pre code { @apply bg-transparent p-0 text-fg-muted; }
+  .prose-kaiwu table { @apply w-full text-sm my-4; }
+  .prose-kaiwu th { @apply text-left text-fg font-semibold py-2 pr-4 border-b border-line; }
+  .prose-kaiwu td { @apply py-2 pr-4 border-b border-line align-top; }
+  .prose-kaiwu hr { @apply border-line my-10; }
+}
+
+/* Scroll reveal (applied by <Reveal/> after hydration only) */
+.reveal-init { opacity: 0; transform: translateY(14px); }
+.reveal-in { opacity: 1; transform: none; transition: opacity .6s ease-out, transform .6s cubic-bezier(.2,.7,.2,1); }
+
+/* Reserve room under content while the mobile sticky CTA is visible */
+@media (max-width: 767px) {
+  body.has-mobile-cta { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+}
+
+/* Hero glow — the one allowed gradient (amber spark) */
+.hero-glow { background: radial-gradient(55% 45% at 50% 0%, rgba(245, 158, 11, 0.16), transparent 70%); }
+
+/* Terminal-style code panel */
+.code-panel { @apply rounded-2xl border border-line bg-surface overflow-hidden; }
+.code-panel pre { @apply m-0 p-5 text-[13px] leading-6 overflow-x-auto text-fg-muted; }
+.code-panel .tok-k { color: #7dd3fc; }
+.code-panel .tok-s { color: #86efac; }
+.code-panel .tok-c { color: #7c8aa3; }
+.code-panel .tok-f { color: #fbbf24; }
