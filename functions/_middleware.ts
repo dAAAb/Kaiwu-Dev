@@ -86,20 +86,38 @@ async function asset(env: Env, origin: string, path: string, request?: Request):
   const res = await env.ASSETS.fetch(new Request(new URL(path, origin), { headers }))
   return res.ok || res.status === 304 ? res : null
 }
-/** Rebuild an asset response with our headers while keeping validators (ETag → 304 works). */
-function rebuild(src: Response, status: number, extra: Record<string, string>): Response {
+/**
+ * Rebuild an asset response with our headers while keeping validators so revisits get 304s.
+ * The Pages asset server sends no ETag for prerendered .html (only for other static files),
+ * so when one is missing we hash the body (≤ ~60 KB) and honour If-None-Match ourselves.
+ */
+async function rebuild(src: Response, status: number, extra: Record<string, string>, request?: Request): Promise<Response> {
+  const vary304 = (r: Response) => { r.headers.set('vary', 'Accept'); return r }
   if (src.status === 304) {
     const r = withHeaders(new Response(null, { status: 304 }), {})
     const et = src.headers.get('etag'); if (et) r.headers.set('etag', et)
-    r.headers.set('vary', 'Accept')
-    return r
+    return vary304(r)
   }
-  const out = withHeaders(new Response(src.body, { status }), extra)
-  const et = src.headers.get('etag'); if (et && status === 200) out.headers.set('etag', et)
-  const robots = src.headers.get('x-robots-tag'); if (robots) out.headers.set('x-robots-tag', robots)
+  const robots = src.headers.get('x-robots-tag')
+  let etag = src.headers.get('etag')
+  let body: BodyInit | null = src.body
+  if (!etag && status === 200) {
+    const buf = await src.arrayBuffer()
+    const digest = await crypto.subtle.digest('SHA-1', buf)
+    etag = `W/"${Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')}"`
+    body = buf
+    const inm = request?.headers.get('if-none-match')
+    if (inm && inm.split(',').some((t) => t.trim() === etag || t.trim() === etag!.slice(2))) {
+      const r = withHeaders(new Response(null, { status: 304 }), { etag, 'cache-control': extra['cache-control'] || '' })
+      if (robots) r.headers.set('x-robots-tag', robots)
+      return vary304(r)
+    }
+  }
+  const out = withHeaders(new Response(body, { status }), extra)
+  if (etag && status === 200) out.headers.set('etag', etag)
+  if (robots) out.headers.set('x-robots-tag', robots)
   return out
 }
-
 async function servePage(env: Env, url: URL, request: Request, htmlPath: string, mdPath: string, status = 200): Promise<Response> {
   const kind = choose(parseAccept(request.headers.get('accept')))
   const cache = status === 200 ? 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400' : 'public, max-age=60'
@@ -115,12 +133,12 @@ async function servePage(env: Env, url: URL, request: Request, htmlPath: string,
         'content-location': mdPath,
         link: `<${SITE}${htmlPath === '/' ? '/' : htmlPath.replace(/\/$/, '')}>; rel="canonical"; type="text/html"`,
         vary: 'Accept',
-      })
+      }, request)
     }
   }
   const html = await asset(env, url.origin, htmlPath, request)
   if (!html) return notFound(env, url, request)
-  const res = rebuild(html, status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': cache })
+  const res = await rebuild(html, status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': cache }, request)
   mergeVary(res, 'Accept')
   return res
 }
