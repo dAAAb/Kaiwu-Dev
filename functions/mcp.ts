@@ -47,7 +47,12 @@ const TOOLS = [
         time_range: {
           type: 'string',
           enum: ['day', 'week', 'month', 'year', 'all'],
-          description: '時間範圍篩選',
+          description: '時間範圍篩選。省略則依查詢語意推斷。',
+        },
+        category: {
+          type: 'string',
+          enum: ['general', 'news', 'auto'],
+          description: 'general 一般網頁、news 新聞；省略或 auto 則依查詢推斷。',
         },
       },
       required: ['query'],
@@ -131,6 +136,7 @@ async function callSearch(env: Env, request: Request, args: any): Promise<string
       max_results: args.max_results,
       lang: args.lang || 'zh-TW',
       time_range: args.time_range,
+      category: args.category,
     }),
   })
 

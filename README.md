@@ -97,9 +97,10 @@ Streamable HTTP 端點：`https://kaiwu.dev/mcp`，內建 `kaiwu_search` 與 `ka
 | `query` | string | 搜尋關鍵字（必填，建議 <400 字） |
 | `search_depth` | `basic`\|`advanced` | advanced 會抓網頁 + LLM 語意摘要 |
 | `max_results` | integer | 1–20（預設 5；省略或 0 視同預設） |
-| `time_range` | `day`\|`week`\|`month`\|`year` | 時間範圍 |
+| `time_range` | `day`\|`week`\|`month`\|`year`\|`all` | 時間範圍；省略則依查詢推斷 |
+| `category` | `general`\|`news`\|`auto` | 搜尋分類；`auto` 或省略則時事走新聞 |
 | `lang` | string | `zh-TW`（預設）/ `zh-CN` / `en` |
-| `include_answer` | boolean | 生成 AI 綜合答案 |
+| `include_answer` | boolean | 有結果時生成 AI 綜合答案 |
 
 ### `/v1/extract` 參數
 

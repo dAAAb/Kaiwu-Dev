@@ -200,7 +200,8 @@ const RESPONSE = `{
     { "title": "…", "url": "https://…", "snippet": "…", "content": "（advanced 才有：語意切段後的正文）",
       "published": "2026-05-12", "engine": "google", "score": 0.91, "language": "zh-TW" }
   ],
-  "answer": "（include_answer 才有）…附來源標注 [1][2]",
+  "planned": { "queries": ["台灣 AI 基本法 草案 重點", "人工智慧基本法"], "category": "news", "time_range": "year", "source": "inferred" },
+  "answer": "（include_answer 且有結果才有）…附來源標注 [1][2]",
   "credits_used": 42,
   "credits_remaining": 958
 }`
@@ -259,16 +260,18 @@ export function Developers() {
             <table>
               <thead><tr><th>參數</th><th>型別</th><th>說明</th></tr></thead>
               <tbody>
-                <tr><td><code>query</code></td><td>string</td><td>必填。建議 400 字以內；會自動展開繁簡用語。</td></tr>
+                <tr><td><code>query</code></td><td>string</td><td>必填。建議 400 字以內；會自動展開繁簡用語與官方名稱。</td></tr>
                 <tr><td><code>search_depth</code></td><td><code>basic</code> | <code>advanced</code></td><td>basic 回傳標題與摘要（1 額度）；advanced 抓取前幾頁、語意切段（2 額度）。</td></tr>
-                <tr><td><code>include_answer</code></td><td>boolean</td><td>生成附來源標注的綜合答案（+1 額度）。</td></tr>
+                <tr><td><code>include_answer</code></td><td>boolean</td><td>有結果時生成附來源標注的綜合答案（+1 額度）；無結果不加收。</td></tr>
                 <tr><td><code>max_results</code></td><td>integer</td><td>1–20，預設 5（省略或 0 視同預設）。</td></tr>
-                <tr><td><code>time_range</code></td><td><code>day</code> | <code>week</code> | <code>month</code> | <code>year</code></td><td>時間範圍。</td></tr>
+                <tr><td><code>time_range</code></td><td><code>day</code> | <code>week</code> | <code>month</code> | <code>year</code> | <code>all</code></td><td>時間範圍。省略則依查詢推斷；明確指定優先。</td></tr>
+                <tr><td><code>category</code></td><td><code>general</code> | <code>news</code> | <code>auto</code></td><td>搜尋分類。省略或 <code>auto</code> 則時事走新聞；明確指定優先。</td></tr>
                 <tr><td><code>lang</code></td><td>string</td><td><code>zh-TW</code>（預設）、<code>zh-CN</code>、<code>en</code>。</td></tr>
               </tbody>
             </table>
             <p>回應：</p>
             <pre><code>{RESPONSE}</code></pre>
+            <p>時事查詢會自動加時間範圍與新聞分類，並展開繁簡／官方名稱；你在請求裡明確指定的 <code>time_range</code> / <code>category</code> 優先。重試後仍無結果時回 <code>warning</code>，不生成答案。</p>
             <p><code>credits_used</code> 是本月累計已用額度（含本次扣的 3 額度），不是單次費用；<code>credits_remaining</code> 是本月剩餘額度，也可用 <code>GET /v1/credits</code> 查。</p>
           </section>
 

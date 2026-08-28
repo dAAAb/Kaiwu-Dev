@@ -63,9 +63,10 @@ kw config
 |------|------|------|
 | `--depth, -d` | `basic`（預設）/ `advanced`（抓網頁 + LLM 語意摘要） | 1 / 2 |
 | `--max-results, -n` | 1–20（預設 5） | |
-| `--time-range, -t` | `day` / `week` / `month` / `year` | |
+| `--time-range, -t` | `day` / `week` / `month` / `year` / `all`（省略則依查詢推斷） | |
+| `--category` | `general` / `news` / `auto`（預設 auto） | |
 | `--lang, -l` | `zh-TW`（預設）/ `zh-CN` / `en` | |
-| `--answer, -a` | 生成 AI 綜合答案（含 `[1][2]` 來源標註） | +1 |
+| `--answer, -a` | 生成 AI 綜合答案（含 `[1][2]` 來源標註；無結果不加收） | +1 |
 
 ### extract 選項
 
@@ -111,7 +112,7 @@ CLI 直接對應 REST API，欄位名稱一致：
 
 | CLI | API |
 |-----|-----|
-| `kw search` | `POST /v1/search` — `{query, search_depth, max_results, time_range, lang, include_answer}` |
+| `kw search` | `POST /v1/search` — `{query, search_depth, max_results, time_range, category, lang, include_answer}` |
 | `kw extract` | `POST /v1/extract` — `{urls[], format, query}` |
 | `kw credits` | `GET /v1/credits` |
 
