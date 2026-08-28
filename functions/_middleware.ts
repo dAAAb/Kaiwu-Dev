@@ -104,10 +104,12 @@ async function rebuild(src: Response, status: number, extra: Record<string, stri
   if (!etag && status === 200) {
     const buf = await src.arrayBuffer()
     const digest = await crypto.subtle.digest('SHA-1', buf)
-    etag = `W/"${Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')}"`
-    body = buf
+    // Strong ETag on purpose: Cloudflare drops weak ETags when it rewrites the body (Email Obfuscation).
+    etag = `"${Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')}"`
+    const norm = (t: string) => t.trim().replace(/^W\//, '')
     const inm = request?.headers.get('if-none-match')
-    if (inm && inm.split(',').some((t) => t.trim() === etag || t.trim() === etag!.slice(2))) {
+    body = buf
+    if (inm && inm.split(',').some((t) => norm(t) === norm(etag!))) {
       const r = withHeaders(new Response(null, { status: 304 }), { etag, 'cache-control': extra['cache-control'] || '' })
       if (robots) r.headers.set('x-robots-tag', robots)
       return vary304(r)
