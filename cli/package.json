@@ -1,35 +1,54 @@
 {
   "name": "@kaiwu/cli",
   "version": "0.1.0",
-  "description": "開物 Kaiwu — 中文 AI 搜尋 API 的命令列工具與 AI Agent 整合。Chinese-world web search for AI agents, in your terminal.",
+  "description": "開物 Kaiwu — 中文 AI 搜尋 API 的命令列工具（kw）。Chinese-world web search & extract for AI agents, in your terminal.",
   "type": "module",
   "bin": {
     "kw": "bin/kw.js"
   },
   "files": [
     "bin/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --check bin/kw.js && node bin/kw.js --version && node bin/kw.js --help >/dev/null"
   },
   "keywords": [
     "kaiwu",
     "開物",
     "search",
+    "web-search",
+    "extract",
     "ai",
     "agent",
+    "llm",
     "chinese",
+    "traditional-chinese",
+    "taiwan",
     "cli",
     "claude-code",
     "tavily-alternative",
     "mcp"
   ],
-  "homepage": "https://kaiwu.dev",
+  "author": {
+    "name": "Kaiwu 開物",
+    "url": "https://kaiwu.dev"
+  },
+  "homepage": "https://kaiwu.dev/cli",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dAAAb/Kaiwu-Dev.git",
+    "url": "git+https://github.com/dAAAb/Kaiwu-Dev.git",
     "directory": "cli"
+  },
+  "bugs": {
+    "url": "https://github.com/dAAAb/Kaiwu-Dev/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "MIT"
 }

@@ -48,11 +48,11 @@ kw search "人工智能 监管" --lang zh-CN --json
 | 選項 | 說明 |
 |--------|------|
 | `--depth, -d` | `basic`（預設）或 `advanced`（抓網頁 + LLM 語意摘要） |
-| `--max-results, -n` | 結果數量，0–20（預設 5） |
+| `--max-results, -n` | 結果數量，1–20（預設 5） |
 | `--time-range, -t` | `day`、`week`、`month`、`year` |
 | `--lang, -l` | `zh-TW`（預設）、`zh-CN`、`en` |
 | `--answer, -a` | 生成 AI 綜合答案，含 `[1][2]` 來源標註 |
-| `--json` | 結構化 JSON 輸出（給 agent 解析建議用這個） |
+| `--json` | 結構化 JSON 輸出（給 agent 解析建議用這個；失敗時 stdout 也是單行 JSON `{"error","exit_code","status"}`） |
 | `-o, --output` | 存到檔案 |
 
 ## 搜尋深度
@@ -71,6 +71,7 @@ kw search "人工智能 监管" --lang zh-CN --json
 - 繁簡會自動互查：搜「人工智慧」也會涵蓋「人工智能」。
 - 需要原文全文時用 `--depth advanced`（會回傳語意摘要過的內容），或接著用 [kaiwu-extract](../kaiwu-extract/SKILL.md)。
 - 從 stdin 讀查詢：`echo "查詢" | kw search - --json`
+- 結束碼：0 成功、1 用法錯誤、2 認證失敗、3 額度不足、4 網路/伺服器錯誤；未知選項會直接報錯（例如 `--max_results` 打錯字）。
 
 ## 參見
 

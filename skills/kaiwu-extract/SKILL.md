@@ -48,14 +48,15 @@ echo "https://a.com https://b.com" | kw extract - --json
 |--------|------|
 | `--format, -f` | `markdown`（預設）或 `text` |
 | `--query, -q` | 只保留與此查詢相關的段落（LLM 過濾，+1 額度） |
-| `--json` | 結構化 JSON 輸出 |
+| `--json` | 結構化 JSON 輸出（失敗時 stdout 也是單行 JSON `{"error","exit_code","status"}`） |
 | `-o, --output` | 存到檔案 |
 
 ## 額度
 
 - 每個成功抓取的 URL = 1 額度（失敗的 URL 不計費）。
 - 加上 `--query` 語意過濾再 +1 額度。
-- 一次最多 20 個 URL。
+- 一次最多 20 個 URL；URL 必須以 `http://` 或 `https://` 開頭。
+- 結束碼：0 成功、1 用法錯誤、2 認證失敗、3 額度不足、4 網路/伺服器錯誤。
 
 ## 回傳格式
 

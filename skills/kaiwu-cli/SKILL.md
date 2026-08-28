@@ -35,11 +35,12 @@ npx @kaiwu/cli search "你的查詢" --json
 2. 登入：
 
 ```bash
-kw login            # 互動式輸入金鑰
-kw login kw_xxxxx   # 直接給
+kw login                 # 互動式輸入金鑰（不回顯）
+kw login kw_xxxxx        # 直接給
+echo "$KEY" | kw login   # 非互動（CI / agent）：從 stdin 讀；stdin 為空時改用 KAIWU_API_KEY
 ```
 
-金鑰會存在 `~/.kaiwu/config.json`（權限 600）。
+金鑰會先打 `/v1/credits` 驗證，成功才存到 `~/.kaiwu/config.json`（權限 600）；無效金鑰不會被儲存（結束碼 2）。`kw config path` 可顯示設定檔位置。
 
 ### 用環境變數（CI / 容器）
 
@@ -47,7 +48,7 @@ kw login kw_xxxxx   # 直接給
 export KAIWU_API_KEY="kw_xxxxx"
 ```
 
-環境變數優先於設定檔。
+環境變數優先於設定檔。其他環境變數：`KAIWU_API_URL`（自訂端點）、`KAIWU_TIMEOUT`（逾時秒數，預設 120）、`NO_COLOR`。
 
 ### 自訂端點（自架 / 測試）
 
@@ -99,8 +100,11 @@ curl -s https://kaiwu.dev/v1/credits \
 | 症狀 | 解法 |
 |------|------|
 | `kw: command not found` | 重新執行安裝指令；npm 全域安裝需確認 PATH 含 npm bin |
-| `需要 API 金鑰` / 401 | 執行 `kw login` 或設定 `KAIWU_API_KEY` |
-| `額度不足` / 429 | `kw credits` 查餘額；等月初重置或升級方案 |
+| `尚未登入` / `無效的 API 金鑰` / 401（結束碼 2） | 執行 `kw login` 或設定 `KAIWU_API_KEY`；到 dashboard 確認金鑰未被撤銷 |
+| `額度不足` / 429（結束碼 3） | `kw credits` 查餘額；等月初重置或升級方案 |
+| `伺服器錯誤` / 5xx、`無法連線`、`請求逾時`（結束碼 4） | 退避重試；advanced 搜尋較慢可調高 `KAIWU_TIMEOUT` |
+| `未知選項` | 選項名稱打錯（例如 `--max_results` 應為 `--max-results`），`kw help` 查看 |
+| `kw login` 在腳本裡卡住或沒存到 | 非互動環境請用 `kw login <key>` 或 `echo "$KEY" \| kw login` |
 | 連線失敗 | 確認 `kw config` 的 base_url 正確 |
 
 ## 參見

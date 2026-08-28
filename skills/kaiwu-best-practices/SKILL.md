@@ -31,22 +31,23 @@ description: 用開物 Kaiwu 建構正式整合的最佳實踐 — 額度管理�
 
 - 程式流程開始前先 `kw credits --json` 確認餘額。
 - 預期成本：search basic=1、advanced=2、+answer=+1；extract=每成功 URL 1、+query=+1。
-- 遇到 HTTP 429（額度不足），回應 body 會帶 `credits_needed` 與 `credits_remaining`，據此降級（例如改 basic、減少 max-results）。
+- 遇到 HTTP 429（額度不足），回應 body 會帶 `credits_needed` 與 `credits_remaining`，據此降級（例如改 basic、減少 max-results）。CLI 加 `--json` 時，錯誤也會以單行 JSON 輸出到 stdout，同樣帶這兩個欄位。
 
 ## 4. 錯誤處理
 
 | 狀態 | 意義 | 建議 |
 |------|------|------|
-| 401 | 金鑰無效 / 缺失 | 檢查 `KAIWU_API_KEY` |
-| 429 | 額度不足 | 降級或等重置 |
-| 502 | 搜尋引擎暫時無法使用 | 退避重試 |
+| 401（kw 結束碼 2） | 金鑰無效 / 缺失 | 檢查 `KAIWU_API_KEY` 或 `kw login` |
+| 429（kw 結束碼 3） | 額度不足 | 降級或等重置 |
+| 500 / 502（kw 結束碼 4） | 搜尋失敗 / 搜尋引擎暫時無法使用 | 退避重試 |
+| 連線失敗 / 逾時（kw 結束碼 4） | 網路或 API 端點問題 | 重試；檢查 `kw config` 的 base_url |
 | extract `status: failed` | 該 URL 抓取失敗（反爬蟲 / 逾時） | 該 URL 不計費；改用 `search --depth advanced` 取摘要 |
 
 extract 是逐 URL 回報成功/失敗的，永遠檢查每筆 `status`，別假設全部成功。
 
 ## 5. agent 整合建議
 
-- 解析輸出一律加 `--json`，不要 parse 人類可讀格式。
+- 解析輸出一律加 `--json`，不要 parse 人類可讀格式。失敗時 stdout 是 `{"error":"...","exit_code":N,"status":HTTP}`，先看結束碼再決定重試或降級。
 - 大量任務用環境變數 `KAIWU_API_KEY`，不要把金鑰寫進程式碼或 commit。
 - 需要可重現時用 `-o file.json` 落地結果。
 - 串接管線：`search --json` → 取 `results[].url` → `extract --json --query`。

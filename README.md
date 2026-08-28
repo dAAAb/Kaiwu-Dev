@@ -40,7 +40,7 @@
 | 繁簡互查 | ✅ 自動 | ❌ | ❌ |
 | MCP / CLI / Skills | ✅ Day 1 | ✅ | ❌ |
 | 數據主權 | **台灣** | 美國 | 中國 |
-| 定價（1K searches） | **$3** | $5 | ~$4 |
+| 定價 | **限時免費**（付費方案籌備中） | $5 / 1K | ~$4 / 1K |
 
 ## 🚀 快速開始
 
@@ -96,7 +96,7 @@ Streamable HTTP 端點：`https://kaiwu.dev/mcp`，內建 `kaiwu_search` 與 `ka
 |------|------|------|
 | `query` | string | 搜尋關鍵字（必填，建議 <400 字） |
 | `search_depth` | `basic`\|`advanced` | advanced 會抓網頁 + LLM 語意摘要 |
-| `max_results` | number | 0–20（預設 5） |
+| `max_results` | integer | 1–20（預設 5；省略或 0 視同預設） |
 | `time_range` | `day`\|`week`\|`month`\|`year` | 時間範圍 |
 | `lang` | string | `zh-TW`（預設）/ `zh-CN` / `en` |
 | `include_answer` | boolean | 生成 AI 綜合答案 |
@@ -111,11 +111,13 @@ Streamable HTTP 端點：`https://kaiwu.dev/mcp`，內建 `kaiwu_search` 與 `ka
 
 ## 💰 定價
 
-| 方案 | 價格 | 額度 |
-|------|------|------|
-| Free | $0 | 1,000 searches / 月 |
-| Developer | $5 / 月 | 5,000 searches / 月 |
-| Pro | $29 / 月 | 10,000 searches / 月 |
+目前**限時免費**：付費方案推出前，所有功能（search / extract / MCP / CLI）都在 Free 額度內免費使用，正式收費會提前通知。
+
+| 方案 | 價格 | 額度（單一額度池） | 狀態 |
+|------|------|------|------|
+| Free | $0 | 每月 1,000 額度 | 可用 |
+| Developer | $5 / 月 | 每月 5,000 額度 | 即將推出 |
+| Pro | $29 / 月 | 每月 10,000 額度 | 即將推出 |
 
 額度計費：search basic = 1，advanced = 2，`+answer` +1；extract 每成功 URL = 1，`+query` +1。
 
